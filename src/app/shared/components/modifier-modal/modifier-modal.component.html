@@ -1,0 +1,172 @@
+@if (item) {
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
+    
+    <!-- Modal Card -->
+    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden">
+      
+      <!-- Dish Header -->
+      <div class="p-5 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-orange-50 to-amber-50 dark:from-slate-900 dark:to-slate-900 flex items-start justify-between">
+        <div class="flex items-start gap-3">
+          <span class="text-3xl p-2 bg-white dark:bg-slate-800 rounded-xl shadow-xs border border-orange-100 dark:border-slate-700">
+            {{ item.emoji || '🍲' }}
+          </span>
+          <div>
+            <h3 class="font-bold text-lg text-slate-900 dark:text-white leading-snug">
+              {{ item.name }}
+            </h3>
+            @if (item.chineseName) {
+              <p class="text-xs text-orange-600 dark:text-orange-400 font-medium">
+                {{ item.chineseName }}
+              </p>
+            }
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">
+              {{ item.description }}
+            </p>
+          </div>
+        </div>
+
+        <button
+          (click)="close.emit()"
+          class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-white dark:hover:bg-slate-800 transition-colors"
+        >
+          <app-icon name="x" [size]="20"></app-icon>
+        </button>
+      </div>
+
+      <!-- Modifier Groups Form Body -->
+      <div class="p-5 overflow-y-auto flex-1 space-y-6">
+        
+        @for (group of item.modifierGroups; track group.id) {
+          <div class="space-y-2.5">
+            <div class="flex items-center justify-between">
+              <span class="text-sm font-bold text-slate-800 dark:text-slate-200">
+                {{ group.name }}
+              </span>
+              <span class="text-[11px] px-2 py-0.5 rounded-full font-medium"
+                [ngClass]="group.required ? 'bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-400' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'">
+                {{ group.required ? 'Required (Pick 1)' : 'Optional' }}
+              </span>
+            </div>
+
+            <!-- Single Choice (Radio) -->
+            @if (group.maxSelections === 1 || group.required) {
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                @for (opt of group.options; track opt.id) {
+                  <button
+                    type="button"
+                    (click)="selectSingleOption(group, opt)"
+                    [class.border-orange-500]="isOptionSelected(group.id, opt.id)"
+                    [class.bg-orange-50]="isOptionSelected(group.id, opt.id)"
+                    [class.dark:bg-orange-950/40]="isOptionSelected(group.id, opt.id)"
+                    [class.text-orange-900]="isOptionSelected(group.id, opt.id)"
+                    [class.dark:text-orange-200]="isOptionSelected(group.id, opt.id)"
+                    class="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-orange-400 dark:hover:border-orange-600 transition-all text-left cursor-pointer"
+                  >
+                    <div class="flex items-center gap-2.5">
+                      <div class="w-4 h-4 rounded-full border flex items-center justify-center"
+                        [ngClass]="isOptionSelected(group.id, opt.id) ? 'border-orange-500 bg-orange-500 text-white' : 'border-slate-300 dark:border-slate-600'">
+                        @if (isOptionSelected(group.id, opt.id)) {
+                          <div class="w-1.5 h-1.5 bg-white rounded-full"></div>
+                        }
+                      </div>
+                      <span class="text-xs font-semibold text-slate-800 dark:text-slate-200">{{ opt.name }}</span>
+                    </div>
+                    @if (opt.priceDelta !== 0) {
+                      <span class="text-xs font-bold text-orange-600 dark:text-orange-400">
+                        {{ opt.priceDelta > 0 ? '+' : '' }}\${{ opt.priceDelta.toFixed(2) }}
+                      </span>
+                    }
+                  </button>
+                }
+              </div>
+            }
+
+            <!-- Multiple Choice (Checkbox) -->
+            @if (group.maxSelections !== 1 && !group.required) {
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                @for (opt of group.options; track opt.id) {
+                  <button
+                    type="button"
+                    (click)="toggleMultiOption(group, opt)"
+                    [class.border-orange-500]="isOptionSelected(group.id, opt.id)"
+                    [class.bg-orange-50]="isOptionSelected(group.id, opt.id)"
+                    [class.dark:bg-orange-950/40]="isOptionSelected(group.id, opt.id)"
+                    class="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-orange-400 dark:hover:border-orange-600 transition-all text-left cursor-pointer"
+                  >
+                    <div class="flex items-center gap-2.5">
+                      <div class="w-4 h-4 rounded border flex items-center justify-center"
+                        [ngClass]="isOptionSelected(group.id, opt.id) ? 'border-orange-500 bg-orange-500 text-white' : 'border-slate-300 dark:border-slate-600'">
+                        @if (isOptionSelected(group.id, opt.id)) {
+                          <app-icon name="check" [size]="12"></app-icon>
+                        }
+                      </div>
+                      <span class="text-xs font-semibold text-slate-800 dark:text-slate-200">{{ opt.name }}</span>
+                    </div>
+                    @if (opt.priceDelta > 0) {
+                      <span class="text-xs font-bold text-orange-600 dark:text-orange-400">
+                        +\${{ opt.priceDelta.toFixed(2) }}
+                      </span>
+                    }
+                  </button>
+                }
+              </div>
+            }
+
+          </div>
+        }
+
+        <!-- Special Instructions Note -->
+        <div class="space-y-1.5">
+          <label class="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+            <span>Special Instructions / Remarks</span>
+          </label>
+          <input
+            type="text"
+            [(ngModel)]="specialNotes"
+            placeholder="e.g. Less oil, separate gravy, more chilli..."
+            class="w-full px-3.5 py-2.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500"
+          />
+        </div>
+
+      </div>
+
+      <!-- Quantity and Add to Cart Action -->
+      <div class="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-between gap-4">
+        
+        <!-- Quantity Stepper -->
+        <div class="flex items-center gap-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-1 shadow-xs">
+          <button
+            type="button"
+            (click)="decreaseQty()"
+            class="w-8 h-8 rounded-lg flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 active:scale-95 transition-all"
+          >
+            <app-icon name="minus" [size]="16"></app-icon>
+          </button>
+          <span class="text-sm font-bold text-slate-900 dark:text-white w-6 text-center">
+            {{ quantity }}
+          </span>
+          <button
+            type="button"
+            (click)="increaseQty()"
+            class="w-8 h-8 rounded-lg flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 active:scale-95 transition-all"
+          >
+            <app-icon name="plus" [size]="16"></app-icon>
+          </button>
+        </div>
+
+        <!-- Confirm Add Button -->
+        <button
+          type="button"
+          (click)="onConfirmAdd()"
+          class="flex-1 py-3 px-5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-bold text-sm shadow-lg shadow-orange-600/25 flex items-center justify-between active:scale-[0.99] transition-all cursor-pointer"
+        >
+          <span>Add to Order</span>
+          <span>\${{ calculateTotal().toFixed(2) }}</span>
+        </button>
+
+      </div>
+
+    </div>
+
+  </div>
+}

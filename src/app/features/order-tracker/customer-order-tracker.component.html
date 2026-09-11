@@ -1,0 +1,151 @@
+<div class="max-w-md mx-auto w-full space-y-4 py-2 animate-fade-in">
+  
+  @if (order()) {
+    <!-- Order Card -->
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-2xl space-y-5">
+      
+      <!-- Top Status Header -->
+      <div class="text-center space-y-1.5 pb-4 border-b border-slate-800">
+        <div class="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-500 mx-auto flex items-center justify-center text-white shadow-lg shadow-orange-500/30 text-2xl">
+          {{ stallEmoji() || '🍲' }}
+        </div>
+        <div>
+          <h2 class="font-extrabold text-lg text-white">{{ stallName() || 'Hawker Stall' }}</h2>
+          <p class="text-xs text-orange-400 font-bold">Ticket #{{ order()?.orderNumber }}</p>
+        </div>
+      </div>
+
+      <!-- Live Kitchen Stepper Status -->
+      <div class="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Live Kitchen Status</span>
+          <span class="text-xs font-mono font-bold text-amber-400 animate-pulse flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+            <span>Est. ~{{ estimatedMinutes() }} mins</span>
+          </span>
+        </div>
+
+        <!-- 3-Step Progress Visualizer -->
+        <div class="grid grid-cols-3 gap-2 text-center pt-2">
+          
+          <!-- Step 1: Received -->
+          <div class="space-y-1.5">
+            <div class="w-8 h-8 rounded-full mx-auto flex items-center justify-center text-xs font-black"
+              [ngClass]="stepLevel() >= 1 ? 'bg-orange-500 text-white shadow-md shadow-orange-500/30' : 'bg-slate-800 text-slate-500'">
+              1
+            </div>
+            <p class="text-[11px] font-bold" [ngClass]="stepLevel() >= 1 ? 'text-white' : 'text-slate-500'">
+              Received
+            </p>
+          </div>
+
+          <!-- Step 2: Cooking -->
+          <div class="space-y-1.5">
+            <div class="w-8 h-8 rounded-full mx-auto flex items-center justify-center text-xs font-black"
+              [ngClass]="stepLevel() >= 2 ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'bg-slate-800 text-slate-500'">
+              2
+            </div>
+            <p class="text-[11px] font-bold" [ngClass]="stepLevel() >= 2 ? 'text-white' : 'text-slate-500'">
+              Cooking
+            </p>
+          </div>
+
+          <!-- Step 3: Ready -->
+          <div class="space-y-1.5">
+            <div class="w-8 h-8 rounded-full mx-auto flex items-center justify-center text-xs font-black"
+              [ngClass]="stepLevel() >= 3 ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30 animate-bounce' : 'bg-slate-800 text-slate-500'">
+              3
+            </div>
+            <p class="text-[11px] font-bold" [ngClass]="stepLevel() >= 3 ? 'text-emerald-400 font-extrabold' : 'text-slate-500'">
+              Ready!
+            </p>
+          </div>
+
+        </div>
+
+        <div class="p-2.5 rounded-xl text-center text-xs font-bold mt-2"
+          [ngClass]="{
+            'bg-amber-950/40 text-amber-300 border border-amber-800/60': stepLevel() === 1,
+            'bg-blue-950/40 text-blue-300 border border-blue-800/60': stepLevel() === 2,
+            'bg-emerald-950/50 text-emerald-300 border border-emerald-700': stepLevel() >= 3
+          }">
+          {{ statusMessage() }}
+        </div>
+      </div>
+
+      <!-- Order Details Summary -->
+      <div class="space-y-2.5 text-xs">
+        <div class="flex items-center justify-between text-slate-400">
+          <span>Target:</span>
+          <span class="font-bold text-white">{{ order()?.diningOption === 'dine_in' ? '🍽️ ' + order()?.tableOrBuzzerNumber : '🥡 Takeaway Pickup' }}</span>
+        </div>
+
+        <div class="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+          @for (item of order()?.items; track item.id) {
+            <div class="flex items-start justify-between">
+              <div>
+                <span class="font-bold text-white">{{ item.quantity }}x {{ item.name }}</span>
+                @for (mod of item.selectedModifiers; track mod.optionId) {
+                  <span class="block text-[10px] text-slate-400 pl-2">+ {{ mod.optionName }}</span>
+                }
+              </div>
+              <span class="font-mono font-bold text-white">\${{ item.totalPrice.toFixed(2) }}</span>
+            </div>
+          }
+
+          <div class="pt-2 border-t border-slate-800 space-y-1 text-slate-400">
+            @if (order()?.discount && (order()?.discount || 0) > 0) {
+              <div class="flex justify-between text-emerald-400 font-semibold">
+                <span>Voucher Discount</span>
+                <span>-\${{ (order()?.discount || 0).toFixed(2) }}</span>
+              </div>
+            }
+            <div class="flex justify-between text-sm font-extrabold text-white pt-1">
+              <span>Total Paid ({{ order()?.paymentMethod | uppercase }})</span>
+              <span class="text-orange-400 font-mono">\${{ order()?.total?.toFixed(2) }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="grid grid-cols-2 gap-2 pt-2">
+        <button
+          type="button"
+          (click)="showReceiptModal.set(true)"
+          class="py-3 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+        >
+          <app-icon name="receipt" [size]="16"></app-icon>
+          <span>E-Receipt</span>
+        </button>
+
+        <a
+          routerLink="/customer/stalls"
+          class="py-3 px-3 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs transition-colors flex items-center justify-center gap-1.5 shadow-md shadow-orange-600/25 cursor-pointer"
+        >
+          <app-icon name="plus" [size]="16"></app-icon>
+          <span>Order More</span>
+        </a>
+      </div>
+
+    </div>
+  } @else {
+    <div class="p-8 text-center bg-slate-900 border border-slate-800 rounded-3xl space-y-3">
+      <span class="text-4xl">🍽️</span>
+      <h3 class="font-bold text-base text-white">No active order selected</h3>
+      <p class="text-xs text-slate-400">Browse stalls to place your next delicious hawker meal</p>
+      <a routerLink="/customer/stalls" class="inline-block mt-2 px-4 py-2 rounded-xl bg-orange-600 text-white font-bold text-xs">
+        Browse Stalls
+      </a>
+    </div>
+  }
+
+  <!-- RECEIPT PREVIEW MODAL -->
+  @if (showReceiptModal() && order()) {
+    <app-receipt-modal
+      [order]="order()"
+      (close)="showReceiptModal.set(false)"
+    ></app-receipt-modal>
+  }
+
+</div>

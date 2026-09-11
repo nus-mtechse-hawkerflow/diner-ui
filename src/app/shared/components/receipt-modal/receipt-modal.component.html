@@ -1,0 +1,157 @@
+@if (order) {
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fade-in">
+    
+    <!-- Modal Card -->
+    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden">
+      
+      <!-- Header Bar -->
+      <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        <div class="flex items-center gap-2 text-slate-900 dark:text-white font-semibold">
+          <app-icon name="receipt" [size]="20" class="text-orange-500"></app-icon>
+          <span>Thermal Receipt Preview</span>
+        </div>
+        <button
+          (click)="close.emit()"
+          class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+        >
+          <app-icon name="x" [size]="20"></app-icon>
+        </button>
+      </div>
+
+      <!-- Printable Receipt Body -->
+      <div class="p-6 overflow-y-auto flex-1 bg-slate-50 dark:bg-slate-950/50 flex justify-center">
+        
+        <div id="thermal-receipt-print" class="w-full max-w-[340px] bg-white p-5 rounded-lg shadow-sm border border-dashed border-slate-300 font-mono text-xs text-slate-800 leading-relaxed">
+          
+          <!-- Stall Info -->
+          <div class="text-center pb-3 border-b border-dashed border-slate-300">
+            <h2 class="text-base font-bold text-slate-950 uppercase tracking-tight">{{ settings().stallName }}</h2>
+            <p class="text-[11px] text-slate-600">{{ settings().hawkerCentreName }} {{ settings().unitNumber }}</p>
+            <p class="text-[11px] text-slate-500">UEN: {{ settings().uenNumber }} | Tel: {{ settings().contactNumber }}</p>
+          </div>
+
+          <!-- Order & Time Header -->
+          <div class="py-3 border-b border-dashed border-slate-300 text-center">
+            <div class="text-2xl font-black text-slate-950 tracking-wider">
+              {{ order.orderNumber }}
+            </div>
+            <div class="inline-block mt-1 px-2.5 py-0.5 rounded font-bold uppercase text-[11px]"
+              [ngClass]="order.diningOption === 'dine_in' ? 'bg-emerald-100 text-emerald-800' : 'bg-orange-100 text-orange-800'">
+              {{ order.diningOption === 'dine_in' ? '🍽️ DINE-IN' : '🥡 TAKEAWAY' }}
+              @if (order.tableOrBuzzerNumber) {
+                <span> • {{ order.tableOrBuzzerNumber }}</span>
+              }
+            </div>
+            <div class="mt-2 text-[10px] text-slate-500 flex justify-between">
+              <span>Date: {{ formatReceiptDate(order.createdAt) }}</span>
+              <span>Time: {{ formatReceiptTime(order.createdAt) }}</span>
+            </div>
+          </div>
+
+          <!-- Items Breakdown -->
+          <div class="py-3 border-b border-dashed border-slate-300 space-y-2">
+            @for (item of order.items; track item.id) {
+              <div>
+                <div class="flex justify-between items-start font-semibold">
+                  <span>{{ item.quantity }}x {{ item.name }}</span>
+                  <span>\${{ item.totalPrice.toFixed(2) }}</span>
+                </div>
+                @if (item.chineseName) {
+                  <div class="text-[10px] text-slate-500">{{ item.chineseName }}</div>
+                }
+                @for (mod of item.selectedModifiers; track mod.optionId) {
+                  <div class="text-[10px] text-slate-500 pl-3">
+                    + {{ mod.optionName }} @if (mod.priceDelta > 0) { (+\${{ mod.priceDelta.toFixed(2) }}) }
+                  </div>
+                }
+                @if (item.specialNotes) {
+                  <div class="text-[10px] italic text-amber-700 pl-3">
+                    Note: "{{ item.specialNotes }}"
+                  </div>
+                }
+              </div>
+            }
+          </div>
+
+          <!-- Price Totals -->
+          <div class="py-3 border-b border-dashed border-slate-300 space-y-1">
+            <div class="flex justify-between text-slate-600">
+              <span>Subtotal</span>
+              <span>\${{ order.subtotal.toFixed(2) }}</span>
+            </div>
+            @if (order.takeawayFee > 0) {
+              <div class="flex justify-between text-slate-600">
+                <span>Takeaway Packaging</span>
+                <span>\${{ order.takeawayFee.toFixed(2) }}</span>
+              </div>
+            }
+            @if (order.tax > 0) {
+              <div class="flex justify-between text-slate-600">
+                <span>GST (9% included)</span>
+                <span>\${{ order.tax.toFixed(2) }}</span>
+              </div>
+            }
+            <div class="flex justify-between text-sm font-bold text-slate-950 pt-1 border-t border-slate-200">
+              <span>TOTAL (SGD)</span>
+              <span>\${{ order.total.toFixed(2) }}</span>
+            </div>
+          </div>
+
+          <!-- Payment Details -->
+          <div class="py-3 border-b border-dashed border-slate-300 text-[11px] space-y-1">
+            <div class="flex justify-between font-semibold">
+              <span>Payment Method:</span>
+              <span class="uppercase">{{ order.paymentMethod }}</span>
+            </div>
+            @if (order.paymentMethod === 'cash') {
+              <div class="flex justify-between text-slate-600">
+                <span>Cash Tendered:</span>
+                <span>\${{ (order.cashTendered || order.total).toFixed(2) }}</span>
+              </div>
+              @if (order.cashChange !== undefined) {
+                <div class="flex justify-between text-emerald-700 font-bold">
+                  <span>Change Given:</span>
+                  <span>\${{ order.cashChange.toFixed(2) }}</span>
+                </div>
+              }
+            }
+            @if (order.paymentMethod === 'paynow' && order.paynowRef) {
+              <div class="flex justify-between text-slate-600">
+                <span>PayNow Ref:</span>
+                <span class="font-mono">{{ order.paynowRef }}</span>
+              </div>
+            }
+          </div>
+
+          <!-- Barcode / Footer -->
+          <div class="pt-4 text-center text-[10px] text-slate-500 space-y-1">
+            <div class="tracking-[4px] font-black text-slate-800 text-xs">||| | |||| || ||| ||||</div>
+            <p>Thank you for supporting local hawkers!</p>
+            <p>HawkerFlow POS • Instant Kitchen Sync</p>
+          </div>
+
+        </div>
+
+      </div>
+
+      <!-- Modal Footer Actions -->
+      <div class="p-4 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-end gap-3">
+        <button
+          (click)="close.emit()"
+          class="px-4 py-2 text-sm font-medium rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+        >
+          Done
+        </button>
+        <button
+          (click)="printReceipt()"
+          class="px-5 py-2 text-sm font-semibold rounded-xl bg-orange-600 hover:bg-orange-500 text-white flex items-center gap-2 shadow-md shadow-orange-600/20 transition-all cursor-pointer"
+        >
+          <app-icon name="printer" [size]="18"></app-icon>
+          <span>Print Receipt (80mm)</span>
+        </button>
+      </div>
+
+    </div>
+
+  </div>
+}

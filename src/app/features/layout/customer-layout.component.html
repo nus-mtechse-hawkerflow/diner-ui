@@ -1,0 +1,112 @@
+<div class="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-orange-500 selection:text-white pb-28 md:pb-24">
+  
+  <!-- Top Customer Portal Navigation Bar -->
+  <header class="bg-slate-900/90 backdrop-blur-md border-b border-slate-800 sticky top-0 z-40 px-4 py-3">
+    <div class="max-w-4xl mx-auto flex items-center justify-between gap-3">
+      
+      <!-- Brand & Kaki Logo -->
+      <a routerLink="/stalls" class="flex items-center gap-2.5 group cursor-pointer">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-white shadow-md shadow-orange-500/20 text-base">
+          🍲
+        </div>
+        <div>
+          <div class="flex items-center gap-1.5">
+            <h1 class="font-black text-sm md:text-base tracking-tight text-white group-hover:text-orange-400 transition-colors">
+              HawkerFlow
+            </h1>
+            <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-400 font-bold border border-orange-500/30 uppercase">
+              Diner Portal
+            </span>
+          </div>
+          <p class="text-[10px] text-slate-400">Singapore Hawker Self-Ordering</p>
+        </div>
+      </a>
+
+      <!-- Right Header Actions -->
+      <div class="flex items-center gap-2">
+        
+        <!-- Customer Points Pill / Guest Prompt -->
+        @if (currentCustomer() && !isGuest()) {
+          <a
+            routerLink="/rewards"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/30 text-amber-300 text-xs font-bold hover:scale-105 transition-all cursor-pointer shadow-xs"
+          >
+            <span>🪙</span>
+            <span>{{ currentCustomer()?.loyaltyPoints }} pts</span>
+            <span class="hidden sm:inline text-[10px] text-amber-400 font-medium">({{ currentCustomer()?.tier }})</span>
+          </a>
+        } @else {
+          <a
+            routerLink="/auth"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold border border-slate-700 transition-all cursor-pointer"
+          >
+            <span>👤 Guest</span>
+            <span class="text-orange-400 text-[11px] hidden sm:inline">• Sign In</span>
+          </a>
+        }
+
+      </div>
+
+    </div>
+  </header>
+
+  <!-- Main Customer Router View -->
+  <main class="flex-1 max-w-4xl mx-auto w-full p-3.5 sm:p-5 flex flex-col pb-36">
+    <router-outlet></router-outlet>
+  </main>
+
+  <!-- Mobile-First Bottom Navigation Bar -->
+  <nav class="fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-lg border-t border-slate-800 px-3 py-2 flex items-center justify-around md:max-w-md md:left-1/2 md:-translate-x-1/2 md:bottom-3 md:rounded-2xl md:border md:shadow-2xl">
+    
+    <!-- Stalls Tab -->
+    <a
+      routerLink="/stalls"
+      routerLinkActive="text-orange-500 font-bold"
+      [routerLinkActiveOptions]="{ exact: false }"
+      class="flex flex-col items-center gap-1 text-slate-400 hover:text-slate-200 transition-colors p-1"
+    >
+      <app-icon name="store" [size]="20"></app-icon>
+      <span class="text-[10px]">Stalls</span>
+    </a>
+
+    <!-- My Orders Tab -->
+    <a
+      routerLink="/orders"
+      routerLinkActive="text-orange-500 font-bold"
+      class="flex flex-col items-center gap-1 text-slate-400 hover:text-slate-200 transition-colors p-1 relative"
+    >
+      <app-icon name="receipt" [size]="20"></app-icon>
+      <span class="text-[10px]">My Orders</span>
+      @if (customerOrders().length > 0) {
+        <span class="absolute top-0 right-1 w-2 h-2 rounded-full bg-orange-500"></span>
+      }
+    </a>
+
+    <!-- Rewards & Vouchers Tab -->
+    <a
+      routerLink="/rewards"
+      routerLinkActive="text-orange-500 font-bold"
+      class="flex flex-col items-center gap-1 text-slate-400 hover:text-slate-200 transition-colors p-1 relative"
+    >
+      <app-icon name="sparkles" [size]="20"></app-icon>
+      <span class="text-[10px]">Rewards</span>
+      @if (activeVouchersCount() > 0) {
+        <span class="absolute -top-0.5 right-0 px-1 py-0.2 rounded-full bg-amber-500 text-slate-950 font-black text-[9px]">
+          {{ activeVouchersCount() }}
+        </span>
+      }
+    </a>
+
+    <!-- Profile / Account Tab -->
+    <a
+      routerLink="/profile"
+      routerLinkActive="text-orange-500 font-bold"
+      class="flex flex-col items-center gap-1 text-slate-400 hover:text-slate-200 transition-colors p-1"
+    >
+      <app-icon name="user" [size]="20"></app-icon>
+      <span class="text-[10px]">Account</span>
+    </a>
+
+  </nav>
+
+</div>

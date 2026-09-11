@@ -1,0 +1,238 @@
+<div class="max-w-md mx-auto w-full space-y-6 py-4 animate-fade-in">
+  
+  <!-- Header Branding -->
+  <div class="text-center space-y-2">
+    <div class="w-16 h-16 rounded-3xl bg-gradient-to-tr from-amber-500 to-orange-500 mx-auto flex items-center justify-center text-3xl shadow-xl shadow-orange-500/25">
+      🍲
+    </div>
+    <div>
+      <h2 class="text-2xl font-black text-white tracking-tight">HawkerFlow Diner</h2>
+      <p class="text-xs text-slate-400">Order directly from Singapore's top hawker stalls</p>
+    </div>
+  </div>
+
+  <!-- Mode Selector Tabs -->
+  <div class="grid grid-cols-3 p-1.5 bg-slate-900 rounded-2xl border border-slate-800 gap-1">
+    
+    <!-- Guest Tab -->
+    <button
+      type="button"
+      (click)="activeTab.set('guest')"
+      [class.bg-gradient-to-r]="activeTab() === 'guest'"
+      [class.from-orange-600]="activeTab() === 'guest'"
+      [class.to-amber-600]="activeTab() === 'guest'"
+      [class.text-white]="activeTab() === 'guest'"
+      [class.shadow-md]="activeTab() === 'guest'"
+      [class.text-slate-400]="activeTab() !== 'guest'"
+      class="py-2.5 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+    >
+      <span>🥢</span>
+      <span>Guest</span>
+    </button>
+
+    <!-- Sign In Tab -->
+    <button
+      type="button"
+      (click)="activeTab.set('login')"
+      [class.bg-gradient-to-r]="activeTab() === 'login'"
+      [class.from-orange-600]="activeTab() === 'login'"
+      [class.to-amber-600]="activeTab() === 'login'"
+      [class.text-white]="activeTab() === 'login'"
+      [class.shadow-md]="activeTab() === 'login'"
+      [class.text-slate-400]="activeTab() !== 'login'"
+      class="py-2.5 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+    >
+      <app-icon name="user" [size]="14"></app-icon>
+      <span>Sign In</span>
+    </button>
+
+    <!-- Register Tab -->
+    <button
+      type="button"
+      (click)="activeTab.set('register')"
+      [class.bg-gradient-to-r]="activeTab() === 'register'"
+      [class.from-orange-600]="activeTab() === 'register'"
+      [class.to-amber-600]="activeTab() === 'register'"
+      [class.text-white]="activeTab() === 'register'"
+      [class.shadow-md]="activeTab() === 'register'"
+      [class.text-slate-400]="activeTab() !== 'register'"
+      class="py-2.5 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+    >
+      <app-icon name="sparkles" [size]="14"></app-icon>
+      <span>Sign Up</span>
+    </button>
+
+  </div>
+
+  <!-- TAB 1: GUEST MODE -->
+  @if (activeTab() === 'guest') {
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5 animate-fade-in">
+      <div class="space-y-1">
+        <h3 class="font-extrabold text-base text-white">Order as Guest</h3>
+        <p class="text-xs text-slate-400">Order immediately without signing up. (You can create an account later to claim loyalty points).</p>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div class="space-y-1">
+          <label class="font-bold text-slate-300">Your Name (Optional)</label>
+          <input
+            type="text"
+            [(ngModel)]="guestName"
+            placeholder="e.g. Alex"
+            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500"
+          />
+        </div>
+
+        <div class="space-y-1">
+          <label class="font-bold text-slate-300">Mobile # for SMS Pickup Alert (Optional)</label>
+          <input
+            type="tel"
+            [(ngModel)]="guestPhone"
+            placeholder="e.g. +65 9123 4567"
+            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono"
+          />
+        </div>
+      </div>
+
+      <button
+        type="button"
+        (click)="onGuestOrder()"
+        class="w-full py-3.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-extrabold text-sm shadow-lg shadow-orange-600/25 flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] transition-all"
+      >
+        <span>Browse Stalls & Order</span>
+        <app-icon name="arrow-right" [size]="16"></app-icon>
+      </button>
+    </div>
+  }
+
+  <!-- TAB 2: SIGN IN -->
+  @if (activeTab() === 'login') {
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5 animate-fade-in">
+      <div class="space-y-1">
+        <h3 class="font-extrabold text-base text-white">Sign In to HawkerKaki</h3>
+        <p class="text-xs text-slate-400">Access your points, stamp cards, and voucher discounts</p>
+      </div>
+
+      <!-- Quick Demo Customers 1-Tap -->
+      <div class="space-y-2">
+        <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">1-Tap Demo Customer Logins</span>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <button
+            type="button"
+            (click)="onQuickLoginPreset('cust-uncle-tan')"
+            class="p-3 rounded-2xl bg-slate-950 border border-slate-800 hover:border-amber-500/80 text-left flex items-center gap-2.5 transition-all cursor-pointer group"
+          >
+            <span class="text-2xl p-1 bg-slate-900 rounded-xl">👴</span>
+            <div class="min-w-0">
+              <p class="text-xs font-bold text-white group-hover:text-amber-400 truncate">Uncle Tan</p>
+              <p class="text-[10px] text-amber-400 font-mono">🪙 340 pts • Gold</p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            (click)="onQuickLoginPreset('cust-chloe-lim')"
+            class="p-3 rounded-2xl bg-slate-950 border border-slate-800 hover:border-orange-500/80 text-left flex items-center gap-2.5 transition-all cursor-pointer group"
+          >
+            <span class="text-2xl p-1 bg-slate-900 rounded-xl">👩</span>
+            <div class="min-w-0">
+              <p class="text-xs font-bold text-white group-hover:text-orange-400 truncate">Chloe Lim</p>
+              <p class="text-[10px] text-orange-400 font-mono">🪙 185 pts • Silver</p>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <div class="relative flex py-1 items-center">
+        <div class="flex-grow border-t border-slate-800"></div>
+        <span class="flex-shrink mx-3 text-slate-500 text-[10px] uppercase font-bold tracking-wider">Or Sign In with Email / Mobile</span>
+        <div class="flex-grow border-t border-slate-800"></div>
+      </div>
+
+      <form (ngSubmit)="onFormLogin()" class="space-y-3.5 text-xs">
+        <div class="space-y-1">
+          <label class="font-bold text-slate-300">Mobile / Email</label>
+          <input
+            type="text"
+            [(ngModel)]="loginIdentifier"
+            name="identifier"
+            placeholder="e.g. +65 9123 4567 or uncletan@hawkerkaki.sg"
+            required
+            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500"
+          />
+        </div>
+
+        <button
+          type="submit"
+          class="w-full py-3.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-extrabold text-sm shadow-lg shadow-orange-600/25 flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] transition-all"
+        >
+          <span>Sign In</span>
+          <app-icon name="arrow-right" [size]="16"></app-icon>
+        </button>
+      </form>
+    </div>
+  }
+
+  <!-- TAB 3: REGISTER -->
+  @if (activeTab() === 'register') {
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5 animate-fade-in">
+      
+      <!-- Welcome Perk Banner -->
+      <div class="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/40 flex items-center gap-3">
+        <span class="text-3xl">🎁</span>
+        <div>
+          <h4 class="font-black text-xs text-amber-300">Sign Up Bonus Perk!</h4>
+          <p class="text-[11px] text-slate-300 mt-0.5">Receive <strong>100 Free Loyalty Points</strong> & a <strong>$5.00 Welcome Voucher</strong> instantly.</p>
+        </div>
+      </div>
+
+      <form (ngSubmit)="onRegister()" class="space-y-3.5 text-xs">
+        <div class="space-y-1">
+          <label class="font-bold text-slate-300">Full Name *</label>
+          <input
+            type="text"
+            [(ngModel)]="regName"
+            name="name"
+            placeholder="e.g. Marcus Tan"
+            required
+            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500"
+          />
+        </div>
+
+        <div class="space-y-1">
+          <label class="font-bold text-slate-300">Mobile Number (Singapore) *</label>
+          <input
+            type="tel"
+            [(ngModel)]="regPhone"
+            name="phone"
+            placeholder="e.g. +65 9123 4567"
+            required
+            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono"
+          />
+        </div>
+
+        <div class="space-y-1">
+          <label class="font-bold text-slate-300">Email Address (Optional)</label>
+          <input
+            type="email"
+            [(ngModel)]="regEmail"
+            name="email"
+            placeholder="e.g. marcus@gmail.com"
+            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500"
+          />
+        </div>
+
+        <button
+          type="submit"
+          [disabled]="!regName || !regPhone"
+          [class.opacity-50]="!regName || !regPhone"
+          class="w-full py-3.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-extrabold text-sm shadow-lg shadow-orange-600/25 flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] transition-all"
+        >
+          <app-icon name="sparkles" [size]="16"></app-icon>
+          <span>Claim Bonus & Create Account</span>
+        </button>
+      </form>
+    </div>
+  }
+
+</div>

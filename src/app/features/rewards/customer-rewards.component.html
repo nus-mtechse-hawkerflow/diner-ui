@@ -1,0 +1,233 @@
+<div class="space-y-5 animate-fade-in pb-28">
+  
+  <!-- Loyalty Membership Card -->
+  <div class="rounded-3xl p-5 bg-gradient-to-tr from-amber-600 via-orange-600 to-rose-600 text-white shadow-xl relative overflow-hidden space-y-4">
+    <div class="absolute -right-10 -bottom-10 w-48 h-48 bg-white/10 rounded-full blur-2xl pointer-events-none"></div>
+    
+    <div class="flex items-start justify-between">
+      <div>
+        <div class="flex items-center gap-1.5">
+          <span class="text-xs uppercase font-black tracking-widest text-amber-200">HawkerKaki Pass</span>
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-white/20 text-white border border-white/30">
+            {{ currentCustomer()?.tier || 'Bronze Kaki' }}
+          </span>
+        </div>
+        <h2 class="text-xl font-black text-white mt-1">{{ currentCustomer()?.name || 'Guest Diner' }}</h2>
+      </div>
+
+      <div class="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-2xl border border-white/30">
+        {{ currentCustomer()?.avatarEmoji || '🪙' }}
+      </div>
+    </div>
+
+    <!-- Points Balance Counter -->
+    <div class="pt-2 border-t border-white/20 flex items-baseline justify-between">
+      <div>
+        <span class="text-[11px] text-amber-100 block">Available Points Balance</span>
+        <div class="flex items-baseline gap-1.5 mt-0.5">
+          <span class="text-3xl font-black font-mono tracking-tight">{{ currentCustomer()?.loyaltyPoints || 0 }}</span>
+          <span class="text-xs font-bold text-amber-200 uppercase">PTS</span>
+        </div>
+      </div>
+
+      <div class="text-right">
+        <span class="text-[10px] text-amber-200 block">Earn Rate</span>
+        <span class="text-xs font-bold font-mono">1 PT / \$1 SGD</span>
+      </div>
+    </div>
+
+    <!-- Tier Progress -->
+    <div class="space-y-1 text-xs">
+      <div class="flex justify-between text-[11px] text-amber-100">
+        <span>Level Progress</span>
+        <span>{{ (currentCustomer()?.loyaltyPoints || 0) >= 300 ? 'MAX TIER (Gold)' : (currentCustomer()?.loyaltyPoints || 0) + ' / 300 pts to Gold' }}</span>
+      </div>
+      <div class="h-2 w-full bg-black/25 rounded-full overflow-hidden p-0.5">
+        <div
+          class="h-full bg-white rounded-full transition-all duration-700"
+          [style.width.%]="tierProgress()"
+        ></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rewards Tab Switcher: Vouchers vs Stamp Cards vs Redeem Catalog -->
+  <div class="grid grid-cols-3 p-1.5 bg-slate-900 rounded-2xl border border-slate-800 gap-1">
+    <button
+      type="button"
+      (click)="activeRewardTab.set('vouchers')"
+      [class.bg-gradient-to-r]="activeRewardTab() === 'vouchers'"
+      [class.from-orange-600]="activeRewardTab() === 'vouchers'"
+      [class.to-amber-600]="activeRewardTab() === 'vouchers'"
+      [class.text-white]="activeRewardTab() === 'vouchers'"
+      [class.shadow-md]="activeRewardTab() === 'vouchers'"
+      [class.text-slate-400]="activeRewardTab() !== 'vouchers'"
+      class="py-2.5 px-1 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+    >
+      <app-icon name="sparkles" [size]="14"></app-icon>
+      <span>Vouchers ({{ activeVouchers().length }})</span>
+    </button>
+
+    <button
+      type="button"
+      (click)="activeRewardTab.set('stamps')"
+      [class.bg-gradient-to-r]="activeRewardTab() === 'stamps'"
+      [class.from-orange-600]="activeRewardTab() === 'stamps'"
+      [class.to-amber-600]="activeRewardTab() === 'stamps'"
+      [class.text-white]="activeRewardTab() === 'stamps'"
+      [class.shadow-md]="activeRewardTab() === 'stamps'"
+      [class.text-slate-400]="activeRewardTab() !== 'stamps'"
+      class="py-2.5 px-1 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+    >
+      <app-icon name="coffee" [size]="14"></app-icon>
+      <span>Stamp Cards</span>
+    </button>
+
+    <button
+      type="button"
+      (click)="activeRewardTab.set('redeem')"
+      [class.bg-gradient-to-r]="activeRewardTab() === 'redeem'"
+      [class.from-orange-600]="activeRewardTab() === 'redeem'"
+      [class.to-amber-600]="activeRewardTab() === 'redeem'"
+      [class.text-white]="activeRewardTab() === 'redeem'"
+      [class.shadow-md]="activeRewardTab() === 'redeem'"
+      [class.text-slate-400]="activeRewardTab() !== 'redeem'"
+      class="py-2.5 px-1 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+    >
+      <app-icon name="dollar-sign" [size]="14"></app-icon>
+      <span>Redeem Pts</span>
+    </button>
+  </div>
+
+  <!-- 1. VOUCHERS WALLET TAB -->
+  @if (activeRewardTab() === 'vouchers') {
+    <div class="space-y-3 animate-fade-in">
+      @for (vouch of vouchers(); track vouch.id) {
+        <div
+          [class.opacity-50]="vouch.isUsed"
+          class="p-4 rounded-3xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md relative overflow-hidden"
+        >
+          <div class="flex items-start gap-3.5">
+            <span class="p-3 rounded-2xl bg-slate-950 text-amber-400 border border-slate-800 text-xl shrink-0">
+              <app-icon [name]="vouch.icon" [size]="22"></app-icon>
+            </span>
+            <div>
+              <h3 class="font-bold text-sm text-white">{{ vouch.title }}</h3>
+              <p class="text-xs text-slate-400 mt-0.5">{{ vouch.description }}</p>
+              <div class="flex items-center gap-2 mt-1.5 text-[11px] font-mono">
+                <span class="px-2 py-0.5 rounded bg-slate-950 text-amber-300 font-bold border border-slate-800">
+                  {{ vouch.code }}
+                </span>
+                <span class="text-slate-500">Valid till {{ vouch.validUntil }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="self-end sm:self-center shrink-0">
+            @if (vouch.isUsed) {
+              <span class="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-500 text-xs font-bold">
+                Redeemed / Used
+              </span>
+            } @else {
+              <a
+                routerLink="/customer/stalls"
+                (click)="onApplyVoucher(vouch)"
+                class="px-4 py-2 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 text-white text-xs font-bold shadow-md shadow-orange-600/20 hover:scale-105 transition-all flex items-center gap-1 cursor-pointer"
+              >
+                <span>Use Now</span>
+                <app-icon name="arrow-right" [size]="14"></app-icon>
+              </a>
+            }
+          </div>
+        </div>
+      }
+    </div>
+  }
+
+  <!-- 2. STAMP CARDS TAB -->
+  @if (activeRewardTab() === 'stamps') {
+    <div class="space-y-4 animate-fade-in">
+      @for (card of stampCards(); track card.id) {
+        <div class="p-5 rounded-3xl bg-slate-900 border border-slate-800 shadow-xl space-y-3.5">
+          
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+              <span class="text-2xl p-1.5 bg-slate-950 rounded-xl border border-slate-800">
+                {{ card.stallEmoji }}
+              </span>
+              <div>
+                <h3 class="font-extrabold text-sm text-white">{{ card.stallName }}</h3>
+                <p class="text-[11px] text-amber-400 font-medium">🎁 {{ card.rewardDescription }}</p>
+              </div>
+            </div>
+            <span class="text-xs font-mono font-black text-white bg-slate-950 px-2.5 py-1 rounded-xl border border-slate-800">
+              {{ card.currentStamps }} / {{ card.maxStamps }} Stamps
+            </span>
+          </div>
+
+          <!-- 10 Stamps Grid Visualizer -->
+          <div class="grid grid-cols-5 sm:grid-cols-10 gap-2 p-3 bg-slate-950 rounded-2xl border border-slate-800/80">
+            @for (stampIdx of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]; track stampIdx) {
+              <div
+                class="aspect-square rounded-xl flex items-center justify-center text-xs font-bold transition-transform"
+                [ngClass]="stampIdx <= card.currentStamps ? 'bg-gradient-to-tr from-amber-500 to-orange-500 text-white shadow-md shadow-orange-500/20 scale-105' : 'bg-slate-900 text-slate-700 border border-slate-800'"
+              >
+                @if (stampIdx <= card.currentStamps) {
+                  <span>{{ card.stallEmoji }}</span>
+                } @else if (stampIdx === 10) {
+                  <span>🎁</span>
+                } @else {
+                  <span>{{ stampIdx }}</span>
+                }
+              </div>
+            }
+          </div>
+
+          <p class="text-[11px] text-slate-400 text-center">
+            {{ card.maxStamps - card.currentStamps }} more {{ card.maxStamps - card.currentStamps === 1 ? 'order' : 'orders' }} at this stall to receive your free reward voucher!
+          </p>
+
+        </div>
+      }
+    </div>
+  }
+
+  <!-- 3. REDEEM POINTS CATALOG TAB -->
+  @if (activeRewardTab() === 'redeem') {
+    <div class="space-y-3.5 animate-fade-in">
+      <div class="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800 text-xs text-slate-400 flex items-center justify-between">
+        <span>Current Points: <strong class="text-white font-mono font-bold">{{ currentCustomer()?.loyaltyPoints || 0 }} pts</strong></span>
+        <span class="text-amber-400">100% Instant Delivery</span>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        @for (item of redeemCatalog; track item.id) {
+          <div class="p-4 rounded-3xl bg-slate-900 border border-slate-800 flex flex-col justify-between gap-3 shadow-md">
+            <div>
+              <div class="flex items-center justify-between">
+                <span class="text-2xl">{{ item.emoji }}</span>
+                <span class="px-2 py-0.5 rounded-lg text-xs font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  {{ item.pointsCost }} PTS
+                </span>
+              </div>
+              <h4 class="font-bold text-sm text-white mt-2">{{ item.title }}</h4>
+              <p class="text-[11px] text-slate-400 mt-1">{{ item.description }}</p>
+            </div>
+
+            <button
+              type="button"
+              (click)="onRedeemReward(item)"
+              [disabled]="(currentCustomer()?.loyaltyPoints || 0) < item.pointsCost"
+              [class.opacity-50]="(currentCustomer()?.loyaltyPoints || 0) < item.pointsCost"
+              class="w-full py-2.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 text-white font-bold text-xs shadow-md cursor-pointer transition-all flex items-center justify-center gap-1.5"
+            >
+              <app-icon name="sparkles" [size]="14"></app-icon>
+              <span>{{ (currentCustomer()?.loyaltyPoints || 0) >= item.pointsCost ? 'Redeem for ' + item.pointsCost + ' pts' : 'Need ' + (item.pointsCost - (currentCustomer()?.loyaltyPoints || 0)) + ' more pts' }}</span>
+            </button>
+          </div>
+        }
+      </div>
+    </div>
+  }
+
+</div>

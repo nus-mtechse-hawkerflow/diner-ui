@@ -1,0 +1,108 @@
+<div class="space-y-4 animate-fade-in">
+  
+  <!-- Banner / Promo Carousel Header -->
+  <div class="p-5 rounded-3xl bg-gradient-to-r from-orange-600 via-amber-600 to-yellow-500 text-white shadow-xl relative overflow-hidden flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+    <div class="relative z-10 space-y-1 max-w-lg">
+      <span class="inline-block text-[11px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-black/25 text-amber-200 backdrop-blur-xs">
+        🔥 HawkerKaki Rewards
+      </span>
+      <h2 class="text-xl sm:text-2xl font-black leading-tight">
+        Support Local Hawker Stalls & Earn 1pt per \$1
+      </h2>
+      <p class="text-xs text-orange-100">
+        Collect digital stamp cards, redeem free kopi & meals, and skip the physical queue!
+      </p>
+    </div>
+    <div class="relative z-10 shrink-0">
+      <a
+        routerLink="/customer/rewards"
+        class="px-4 py-2.5 rounded-xl bg-white text-orange-700 hover:bg-orange-50 font-extrabold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+      >
+        <span>View My Vouchers</span>
+        <app-icon name="arrow-right" [size]="14"></app-icon>
+      </a>
+    </div>
+  </div>
+
+  <!-- Search & Hawker Centre Filters -->
+  <div class="space-y-2.5">
+    
+    <!-- Search Bar -->
+    <div class="relative flex items-center">
+      <app-icon name="search" [size]="16" class="absolute left-3.5 text-slate-400 pointer-events-none"></app-icon>
+      <input
+        type="text"
+        [(ngModel)]="searchQuery"
+        placeholder="Search chicken rice, laksa, kopi, wonton mee, seafood..."
+        class="w-full pl-11 pr-4 py-3 text-xs md:text-sm rounded-2xl bg-slate-900 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all leading-normal"
+      />
+    </div>
+
+    <!-- Hawker Centre Filter Tabs -->
+    <div class="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+      @for (centre of hawkerCentres; track centre) {
+        <button
+          type="button"
+          (click)="selectedCentre.set(centre)"
+          [class.bg-orange-500]="selectedCentre() === centre"
+          [class.text-white]="selectedCentre() === centre"
+          [class.shadow-md]="selectedCentre() === centre"
+          [class.bg-slate-900]="selectedCentre() !== centre"
+          [class.text-slate-400]="selectedCentre() !== centre"
+          [class.border-slate-800]="selectedCentre() !== centre"
+          class="px-3.5 py-2 rounded-xl text-xs font-bold border transition-all whitespace-nowrap cursor-pointer hover:border-orange-500/50"
+        >
+          {{ centre }}
+        </button>
+      }
+    </div>
+
+  </div>
+
+  <!-- Stalls Grid -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+    @for (stall of filteredStalls(); track stall.id) {
+      <div
+        (click)="goToStallMenu(stall.id)"
+        class="group p-4.5 rounded-3xl bg-slate-900 border border-slate-800 hover:border-orange-500/80 p-4 transition-all flex flex-col justify-between gap-4 cursor-pointer shadow-md hover:shadow-orange-500/10 active:scale-[0.99]"
+      >
+        <div class="flex items-start gap-3.5">
+          <span class="text-4xl p-2.5 rounded-2xl bg-slate-950 border border-slate-800 group-hover:scale-105 transition-transform shrink-0">
+            {{ stall.emoji }}
+          </span>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <h3 class="font-extrabold text-base text-white group-hover:text-orange-400 transition-colors truncate">
+                {{ stall.stallName }}
+              </h3>
+            </div>
+            <p class="text-xs font-bold text-orange-400 mt-0.5">
+              {{ stall.unitNumber }} • {{ stall.hawkerCentreName }}
+            </p>
+            <p class="text-xs text-slate-400 mt-1 line-clamp-1">
+              {{ stall.cuisineCategory }}
+            </p>
+          </div>
+        </div>
+
+        <!-- Sample Signature Dishes & Order Button -->
+        <div class="pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
+          <div class="flex items-center gap-1.5 text-[11px] text-slate-400">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>Live Kitchen Ready</span>
+          </div>
+
+          <button
+            type="button"
+            class="px-4 py-2 rounded-xl bg-orange-600 group-hover:bg-orange-500 text-white font-extrabold text-xs shadow-md shadow-orange-600/20 transition-all flex items-center gap-1.5 cursor-pointer"
+          >
+            <span>Order Food</span>
+            <app-icon name="arrow-right" [size]="14"></app-icon>
+          </button>
+        </div>
+
+      </div>
+    }
+  </div>
+
+</div>
