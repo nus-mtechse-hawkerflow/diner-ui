@@ -1,95 +1,87 @@
-# AGENT.md - HawkerFlow Diner UI
+# AGENT.md — HawkerFlow Diner Self-Ordering App Guidelines
 
-This document provides operational guidelines, architecture rules, and conventions for AI agents working in this repository.
+This document provides instructions, technical specifications, and guardrails for AI coding agents working on the **HawkerFlow Diner (`hawkerflow-diner-ui`)** codebase.
 
 ---
 
 ## 1. Tech Stack & Libraries
 
-- **Language**: TypeScript (`~6.0.2`, target `ES2022`)
-- **Framework**: Angular 22 (`@angular/core`, `@angular/common`, `@angular/router`, `@angular/forms`)
-  - Standalone Component architecture (no `NgModule`)
-  - Signal-based state management (`signal`, `computed`, `effect`)
-  - Modern built-in template control flow (`@if`, `@for`, `@switch`)
-  - Dependency injection via `inject()`
-- **Styling**:
-  - Tailwind CSS (`tailwindcss`, `@tailwindcss/postcss`, `autoprefixer`)
-  - Mobile-first, dark slate theme (`#020617` background, vibrant orange/amber accents)
-  - Custom CSS animations (`animate-fade-in`, `animate-slide-up` in `src/styles.css`)
-- **Icons**: Lucide Angular (`lucide-angular`, `@lucide/angular`) via shared `<app-icon>` wrapper component
-- **Reactivity & Async**: Angular Signals + RxJS (`~7.8.0`)
-- **Testing**: Vitest (`^4.0.8`) with `jsdom` runner via `@angular/build:unit-test`
-- **Build System**: Angular Application Builder (`@angular/build:application`, `@angular/cli`)
+- **Framework**: Angular 22 (Modern Standalone Components, Signal-based reactivity)
+- **Language**: TypeScript 6.0+ (Target: `ES2022`, strict typing, `module: preserve`)
+- **Styling**: Tailwind CSS (with `@tailwindcss/postcss`, custom `hawker-*` color palette, Plus Jakarta Sans & JetBrains Mono typography)
+- **Icons**: Lucide Icons (`@lucide/angular` / `lucide-angular` wrapped via `<app-icon>`)
+- **Build System**: Angular Application Builder (`@angular/build:application` via Vite / esbuild)
+- **State Management**: Angular Signals (`signal`, `computed`, `effect`) with `localStorage` persistence
+- **Testing**: Vitest (`vitest: ^4.0.8`) with `@angular/build:unit-test` / JSDOM runner
+- **Default Port**: `4201` (`http://localhost:4201`)
 
 ---
 
-## 2. Coding Standards & Style Guide
+## 2. Architecture & Directory Layout
 
-### 2.1 File & Directory Structure
 ```
 src/app/
-├── core/            # Domain models, Signal services, mock data, persistence
-│   ├── mock/        # Initial seed data for stalls, menus, vouchers
-│   ├── models/      # TypeScript types and interfaces (*.model.ts)
-│   └── services/    # Injectable singletons (*.service.ts)
-├── features/        # Feature domain pages and smart components
-│   ├── auth/        # Guest mode, login & registration
-│   ├── layout/      # Mobile viewport wrapper & bottom navigation bar
-│   ├── order/       # Menu selection, modifiers modal, cart drawer
-│   ├── order-tracker/ # Real-time kitchen progress & thermal receipts
-│   ├── profile/     # Customer profile, past order history, thermal e-receipts
-│   ├── rewards/     # HawkerKaki loyalty points, stamp cards, voucher wallet
-│   └── stalls/      # Hawker centre and stall directory
-└── shared/          # Reusable dumb/UI components (*.component.ts)
-    └── components/  # IconComponent, ReceiptModal, ModifiersModal, etc.
+├── core/
+│   ├── mock/           # Preset stalls, default menus, vouchers, and stamp cards
+│   ├── models/         # TypeScript interfaces & types (customer, order, menu, auth, settings)
+│   └── services/       # Signal-based singletons (CustomerService, OrderService, MenuService, AudioService, AuthService)
+├── shared/
+│   └── components/     # Reusable UI widgets (IconComponent, ReceiptModalComponent, ModifierModalComponent, PaymentModalComponent)
+└── features/
+    ├── layout/         # Mobile-first shell with bottom navigation (customer-layout.component.ts & .html)
+    ├── auth/           # Guest checkout mode, demo user logins, and registration bonus
+    ├── stalls/         # Food centre directory, search, and stall cards
+    ├── order/          # Dish customization, modifier modals, voucher drawer, and checkout
+    ├── order-tracker/  # Real-time 3-step live kitchen status & digital receipts
+    ├── rewards/        # HawkerKaki Points, tier progress, 10-stamp punch cards, and vouchers
+    └── profile/        # Customer past order history, e-receipt viewer, and settings
 ```
 
-### 2.2 Naming Conventions
-- **Files**: kebab-case with descriptive suffix:
-  - Components: `name.component.ts`, `name.component.html`
-  - Services: `name.service.ts`
-  - Models: `name.model.ts`
-  - Specs: `name.spec.ts`
-- **Classes / Types / Interfaces**: PascalCase (`CustomerProfileComponent`, `CustomerService`, `Order`, `CustomerUser`)
-- **Signals / Variables / Functions**: camelCase (`currentCustomer`, `selectedOrderForReceipt`, `formatOrderDate()`, `redeemPointsForVoucher()`)
-- **Constants / Storage Keys**: UPPER_SNAKE_CASE (`CUSTOMER_SESSION_KEY`, `INITIAL_PRESET_CUSTOMERS`)
+---
 
-### 2.3 Angular & TypeScript Guidelines
-- **Standalone Only**: Always define components as standalone with explicit `imports: [...]`.
-- **Injection**: Use `inject(Service)` instead of constructor parameter injection.
-- **Signals First**: Use Angular Signals (`signal<T>()`, `computed()`) for local and shared state. Persist state changes via `effect()` and `localStorage` where applicable.
-- **Template Control Flow**: Use built-in control flow (`@if (...)`, `@for (item of items; track item.id)`, `@switch (...)`). Do NOT use deprecated structural directives like `*ngIf` or `*ngFor`.
-- **Mobile-First UX**: Ensure UI containers remain constrained (`max-w-md mx-auto`), touch-friendly, and responsive.
+## 3. Coding Standards & Style Guide
+
+### A. Template Isolation Rule (Strict)
+- **Every Angular component template must be in its own dedicated `.html` file** (linked via `templateUrl: './component-name.component.html'`).
+- **Never** write inline templates (`template: \`...\``).
+
+### B. Modern Angular & Reactive Signals
+- Use **Standalone Components** (`standalone: true`) exclusively.
+- Use `inject()` function for dependency injection.
+- Use Angular's built-in control flow syntax: `@if`, `@for`, `@switch`.
+- State must be exposed as Signals (`signal<T>()`, `computed<T>()`).
+
+### C. Naming Conventions
+- **Files & Folders**: `kebab-case` with descriptive suffixes (`customer-order.component.ts`, `customer.model.ts`).
+- **Classes / Types / Interfaces**: `PascalCase` (`CustomerUser`, `CustomerService`, `OrderItem`).
+- **Methods, Variables & Signals**: `camelCase` (`currentCustomer`, `activeVouchers`, `onApplyVoucher()`).
+- **Constants**: `UPPER_SNAKE_CASE` (`INITIAL_PRESET_CUSTOMERS`, `INITIAL_VOUCHERS`).
+
+### D. Mobile-First & Safe Clearance
+- The customer layout features a fixed floating bottom navigation bar (`fixed bottom-0` / `md:bottom-3`).
+- **Always ensure adequate bottom padding** (`pb-28` to `pb-36`) on pages so content, buttons, and voucher cards are never obscured behind the bottom navigation bar.
 
 ---
 
-## 3. Testing Guidelines
+## 4. Testing Guidelines
 
-- **Framework**: Vitest integrated into the Angular test builder (`@angular/build:unit-test`).
-- **Test Structure**:
-  - Group related behavior inside `describe('Feature / Service Name', () => { ... })`.
-  - Use `beforeEach(async () => { ... })` with `TestBed.configureTestingModule` and `provideRouter(routes)` when routing is needed.
-  - Inject services using `TestBed.inject(ServiceName)`.
-- **Commands**:
-  - Run all unit tests: `npm test`
-  - Run production build check: `npm run build`
-- **Quality Gates**:
-  - Always verify that all unit tests pass (`npm test`) after modifying core services or data models.
-  - Ensure zero compilation and type errors on `npm run build`.
+- Run all unit tests:
+  ```bash
+  npm test -- --watch=false
+  ```
+- Build production bundle:
+  ```bash
+  npm run build
+  ```
 
 ---
 
-## 4. Workflow & Guardrails
+## 5. Workflow & Guardrails for AI Agents
 
-1. **Verify Before Modifying Critical Configs**:
-   - Do not edit `package.json`, `angular.json`, `tsconfig.json`, or Tailwind configurations unless explicitly requested or required for a dependency/build fix.
-2. **Preserve Modern Angular Patterns**:
-   - Never revert code back to `NgModule` architectures or legacy `*ngIf`/`*ngFor` syntax.
-   - Maintain signal-based reactivity and avoid introducing unnecessary RxJS subjects/subscriptions when a Signal suffices.
-3. **Domain Integrity (Singapore Hawker Context)**:
-   - Respect Singapore currency formatting (SGD `$` or `S$`, `.toFixed(2)`).
-   - Maintain local terminology (e.g., Kaki loyalty tiers, Stall / Food Centre nomenclature, PayNow / NETS payment options, Dine-In / Takeaway handling).
-4. **Execution & Verification**:
-   - Run `npm test` and `npm run build` after substantial refactoring to confirm nothing is broken.
-5. **Concise Communication**:
-   - Keep answers, explanations, and commit summaries direct, technical, and concise. Avoid unnecessary preamble.
+1. **Verify Before Declaring Done**:
+   - Always verify `npm test -- --watch=false` and `npm run build` succeed with 0 errors.
+2. **Preserve Repository Separation**:
+   - **`hawkerflow-diner-ui`** is strictly for the **Customer / Diner Self-Ordering App**.
+   - Stall POS & kitchen KDS management belongs in `~/Documents/Development/hawkerflow-ui`.
+3. **Port Consistency**:
+   - Always maintain default port `4201` for the diner app in `angular.json` and `package.json`.
