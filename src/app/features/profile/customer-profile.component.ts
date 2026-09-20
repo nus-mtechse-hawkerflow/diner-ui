@@ -3,6 +3,8 @@ import { CommonModule } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { IconComponent } from '../../shared/components/icon/icon.component';
 import { CustomerService } from '../../core/services/customer.service';
+import { OrderService } from '../../core/services/order.service';
+import { AudioService } from '../../core/services/audio.service';
 import { ReceiptModalComponent } from '../../shared/components/receipt-modal/receipt-modal.component';
 import { Order } from '../../core/models/order.model';
 
@@ -14,6 +16,8 @@ import { Order } from '../../core/models/order.model';
 })
 export class CustomerProfileComponent {
   private customerService = inject(CustomerService);
+  private orderService = inject(OrderService);
+  private audioService = inject(AudioService);
   private router = inject(Router);
 
   currentCustomer = this.customerService.currentCustomer;
@@ -34,6 +38,16 @@ export class CustomerProfileComponent {
     } catch {
       return isoDate;
     }
+  }
+
+  trackOrder(orderId: string): void {
+    this.router.navigate(['/tracking', orderId]);
+  }
+
+  markCompleted(order: Order): void {
+    this.customerService.updateOrderStatus(order.id, 'completed');
+    this.orderService.updateOrderStatus(order.id, 'completed');
+    this.audioService.playTicketBumped();
   }
 
   onLogout(): void {

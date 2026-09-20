@@ -16,6 +16,7 @@ export interface ModifierGroup {
 
 export interface MenuItem {
   id: string;
+  numericDishId?: number; // Backend dish ID (e.g. 1)
   name: string;
   chineseName?: string;
   description: string;

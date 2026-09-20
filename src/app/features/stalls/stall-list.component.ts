@@ -1,4 +1,4 @@
-import { Component, inject, signal, computed } from '@angular/core';
+import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -11,14 +11,19 @@ import { IconComponent } from '../../shared/components/icon/icon.component';
   imports: [CommonModule, FormsModule, RouterLink, IconComponent],
   templateUrl: './stall-list.component.html'
 })
-export class StallListComponent {
+export class StallListComponent implements OnInit {
   private authService = inject(AuthService);
   private router = inject(Router);
 
   readonly allStalls = this.authService.allStalls;
+  readonly isLoadingStalls = this.authService.isLoadingStalls;
 
   searchQuery = '';
   selectedCentre = signal<string>('All Food Centres');
+
+  ngOnInit(): void {
+    this.authService.loadStallsFromBackend();
+  }
 
   readonly hawkerCentres = [
     'All Food Centres',

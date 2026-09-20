@@ -4,6 +4,8 @@ import { MenuItem } from '../models/menu.model';
 import { AudioService } from './audio.service';
 import { SettingsService } from './settings.service';
 import { AuthService } from './auth.service';
+import { HawkerApiService } from './hawker-api.service';
+import { BackendCreateOrderPayload, BackendDishOrder } from '../models/hawker-api.model';
 
 @Injectable({
   providedIn: 'root'
@@ -12,6 +14,7 @@ export class OrderService {
   private audioService = inject(AudioService);
   private settingsService = inject(SettingsService);
   private authService = inject(AuthService);
+  private hawkerApiService = inject(HawkerApiService);
 
   // Cart State
   readonly cartItems = signal<OrderItem[]>(this.loadCart());
@@ -282,6 +285,33 @@ export class OrderService {
     }, 500);
 
     return newOrder;
+  }
+
+  /**
+   * Submits current cart directly to backend order service:
+   * POST http://localhost:8082/hawkerflow/v1/order/orders
+   */
+  submitOrderToBackend(paymentMethod: PaymentMethod, cashTendered?: number, paynowRef?: string) {
+    const stall = this.authService.currentStall();
+    const stallNumericId = stall?.numericId ?? (stall ? parseInt(stall.id, 10) || 1 : 1);
+    const dishes: BackendDishOrder[] = this.cartItems().map(item => ({
+      dish_id: item.numericDishId ?? (parseInt(item.menuItemId, 10) || 1),
+      quantity: item.quantity,
+      price: Number(item.totalPrice.toFixed(2))
+    }));
+
+    const total = this.cartTotal();
+    const payload: BackendCreateOrderPayload = {
+      orders: [
+        {
+          stall_id: stallNumericId,
+          dishes
+        }
+      ],
+      total_price: total
+    };
+
+    return this.hawkerApiService.createOrder(payload);
   }
 
   updateOrderStatus(orderId: string, newStatus: OrderStatus): void {

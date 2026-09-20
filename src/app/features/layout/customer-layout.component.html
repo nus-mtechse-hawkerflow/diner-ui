@@ -50,6 +50,45 @@
     </div>
   </header>
 
+  <!-- Real-Time Order Status Toast Notification (AWS SNS Topic: order_status) -->
+  @if (activeToast(); as toast) {
+    <div class="fixed top-16 left-4 right-4 z-50 max-w-md mx-auto animate-bounce-short">
+      <div class="p-4 rounded-2xl bg-gradient-to-r from-slate-900 to-slate-950 border border-orange-500/80 shadow-2xl shadow-orange-500/20 text-white flex items-center justify-between gap-3 backdrop-blur-xl">
+        <div class="flex items-center gap-3 min-w-0">
+          <span class="text-2xl p-2 rounded-xl bg-orange-500/20 border border-orange-500/40 shrink-0">
+            {{ toast.status === 'ready' ? '🔔' : '👨‍🍳' }}
+          </span>
+          <div class="min-w-0">
+            <div class="flex items-center gap-1.5">
+              <span class="text-xs font-black text-orange-400 uppercase tracking-wider">
+                {{ toast.status === 'ready' ? 'Order Ready!' : 'Order In Progress' }}
+              </span>
+              <span class="text-[10px] font-mono text-slate-400">#{{ toast.orderNumber }}</span>
+            </div>
+            <p class="text-xs text-slate-200 truncate font-semibold">{{ toast.message }}</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            (click)="viewTracker(toast.orderId)"
+            class="px-3 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-extrabold text-xs shadow-sm transition-all cursor-pointer"
+          >
+            Track
+          </button>
+          <button
+            type="button"
+            (click)="dismissToast()"
+            class="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
+          >
+            <app-icon name="x" [size]="14"></app-icon>
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+
   <!-- Main Customer Router View -->
   <main class="flex-1 max-w-4xl mx-auto w-full p-3.5 sm:p-5 flex flex-col pb-36">
     <router-outlet></router-outlet>
@@ -67,6 +106,19 @@
     >
       <app-icon name="store" [size]="20"></app-icon>
       <span class="text-[10px]">Stalls</span>
+    </a>
+
+    <!-- Live Tracker Tab -->
+    <a
+      routerLink="/tracking"
+      routerLinkActive="text-orange-500 font-bold"
+      class="flex flex-col items-center gap-1 text-slate-400 hover:text-slate-200 transition-colors p-1 relative"
+    >
+      <app-icon name="clock" [size]="20"></app-icon>
+      <span class="text-[10px]">Tracker</span>
+      @if (activeOrdersCount() > 0) {
+        <span class="absolute -top-0.5 right-0 w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse border-2 border-slate-900"></span>
+      }
     </a>
 
     <!-- My Orders Tab -->

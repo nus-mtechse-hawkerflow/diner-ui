@@ -1,14 +1,16 @@
-import { Component, inject, signal, computed, OnInit } from '@angular/core';
+import { Component, inject, signal, computed, OnInit, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 import { CustomerService } from '../../core/services/customer.service';
 import { OrderService } from '../../core/services/order.service';
+import { HawkerApiService } from '../../core/services/hawker-api.service';
 import { StallAccount } from '../../core/models/auth.model';
 import { Category, MenuItem } from '../../core/models/menu.model';
 import { DiningOption, Order, OrderItem, PaymentMethod, SelectedModifier } from '../../core/models/order.model';
 import { CustomerVoucher } from '../../core/models/customer.model';
+import { BackendCreateOrderPayload, BackendDishOrder } from '../../core/models/hawker-api.model';
 import { ModifierModalComponent } from '../../shared/components/modifier-modal/modifier-modal.component';
 import { PaymentModalComponent } from '../../shared/components/payment-modal/payment-modal.component';
 import { IconComponent } from '../../shared/components/icon/icon.component';
@@ -32,6 +34,7 @@ export class CustomerOrderComponent implements OnInit {
   private authService = inject(AuthService);
   private customerService = inject(CustomerService);
   private orderService = inject(OrderService);
+  private hawkerApiService = inject(HawkerApiService);
 
   stallId = signal<string>('');
   currentStall = signal<StallAccount | null>(null);
@@ -48,9 +51,20 @@ export class CustomerOrderComponent implements OnInit {
   showVoucherDrawer = signal<boolean>(false);
   showCartModal = signal<boolean>(false);
   showPaymentModal = signal<boolean>(false);
+  isSubmittingOrder = signal<boolean>(false);
 
   readonly appliedVoucher = this.customerService.appliedVoucher;
   readonly vouchers = this.customerService.vouchers;
+
+  constructor() {
+    // When stalls are loaded or updated from backend, refresh current stall info if active
+    effect(() => {
+      const id = this.stallId();
+      if (id) {
+        this.loadStallData(id);
+      }
+    });
+  }
 
   ngOnInit(): void {
     this.route.paramMap.subscribe(params => {
@@ -64,23 +78,31 @@ export class CustomerOrderComponent implements OnInit {
 
   loadStallData(id: string): void {
     const stalls = this.authService.allStalls();
-    const stall = stalls.find(s => s.id === id) || stalls[0];
+    const stall = stalls.find(
+      s => s.id === id || String(s.numericId) === id || s.id === `stall-${id}`
+    ) || stalls[0];
+
+    if (!stall) return;
     this.currentStall.set(stall);
 
-    // Load categories & items from stall or localStorage
+    // If stall has initial categories & items directly from backend API
+    if (stall.initialCategories && stall.initialCategories.length > 0) {
+      this.categories.set(stall.initialCategories);
+    }
+    if (stall.initialMenuItems && stall.initialMenuItems.length > 0) {
+      this.items.set(stall.initialMenuItems);
+    }
+
+    // Load from localStorage if present
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
         const storedCats = window.localStorage.getItem(`hawkerflow_categories_${stall.id}`);
         const storedItems = window.localStorage.getItem(`hawkerflow_menu_${stall.id}`);
-        this.categories.set(storedCats ? JSON.parse(storedCats) : (stall.initialCategories || []));
-        this.items.set(storedItems ? JSON.parse(storedItems) : (stall.initialMenuItems || []));
-      } else {
-        this.categories.set(stall.initialCategories || []);
-        this.items.set(stall.initialMenuItems || []);
+        if (storedCats) this.categories.set(JSON.parse(storedCats));
+        if (storedItems) this.items.set(JSON.parse(storedItems));
       }
     } catch (e) {
-      this.categories.set(stall.initialCategories || []);
-      this.items.set(stall.initialMenuItems || []);
+      // fallback
     }
   }
 
@@ -104,6 +126,7 @@ export class CustomerOrderComponent implements OnInit {
     const orderItem: OrderItem = {
       id: 'cart-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
       menuItemId: item.id,
+      numericDishId: item.numericDishId ?? (parseInt(item.id, 10) || undefined),
       name: item.name,
       chineseName: item.chineseName,
       basePrice: item.basePrice,
@@ -126,6 +149,7 @@ export class CustomerOrderComponent implements OnInit {
     const orderItem: OrderItem = {
       id: 'cart-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
       menuItemId: event.item.id,
+      numericDishId: event.item.numericDishId ?? (parseInt(event.item.id, 10) || undefined),
       name: event.item.name,
       chineseName: event.item.chineseName,
       basePrice: event.item.basePrice,
@@ -215,47 +239,112 @@ export class CustomerOrderComponent implements OnInit {
     const stall = this.currentStall();
     if (!stall) return;
 
-    const orderId = 'ord-' + Date.now();
-    const seq = Math.floor(100 + Math.random() * 900);
-    const orderNumber = `HF-${seq}`;
+    this.isSubmittingOrder.set(true);
 
-    const newOrder: Order = {
-      id: orderId,
-      orderNumber,
-      dailySequence: seq,
-      diningOption: this.diningOption(),
-      tableOrBuzzerNumber: this.diningOption() === 'dine_in' ? this.tableNumber : 'Takeaway Pickup',
-      items: this.cart(),
-      subtotal: this.rawSubtotal(),
-      takeawayFee: this.takeawayFee(),
-      tax: 0,
-      discount: this.discountAmount(),
-      total: this.grandTotal(),
-      paymentMethod: event.method,
-      paymentStatus: 'paid',
-      cashTendered: event.cashTendered,
-      paynowRef: event.paynowRef || 'PN-' + Math.floor(10000000 + Math.random() * 90000000),
-      status: 'pending',
-      createdAt: new Date().toISOString()
+    const stallNumericId = stall.numericId ?? (parseInt(stall.id, 10) || 1);
+    const dishes: BackendDishOrder[] = this.cart().map(item => ({
+      dish_id: item.numericDishId ?? (parseInt(item.menuItemId, 10) || 1),
+      quantity: item.quantity,
+      price: Number(item.totalPrice.toFixed(2))
+    }));
+
+    const grandTotal = this.grandTotal();
+    const backendPayload: BackendCreateOrderPayload = {
+      orders: [
+        {
+          stall_id: stallNumericId,
+          dishes
+        }
+      ],
+      total_price: grandTotal
     };
 
+    // Call POST http://localhost:8082/hawkerflow/v1/order/orders
+    this.hawkerApiService.createOrder(backendPayload).subscribe({
+      next: (response) => {
+        this.isSubmittingOrder.set(false);
+        const orderId = String(response.order_id);
+        const orderNumber = `HF-${String(response.order_id).padStart(3, '0')}`;
+
+        const newOrder: Order = {
+          id: orderId,
+          numericStallId: stallNumericId,
+          orderNumber,
+          dailySequence: response.order_id,
+          diningOption: this.diningOption(),
+          tableOrBuzzerNumber: this.diningOption() === 'dine_in' ? this.tableNumber : 'Takeaway Pickup',
+          items: [...this.cart()],
+          subtotal: this.rawSubtotal(),
+          takeawayFee: this.takeawayFee(),
+          tax: 0,
+          discount: this.discountAmount(),
+          total: grandTotal,
+          paymentMethod: event.method,
+          paymentStatus: 'paid',
+          cashTendered: event.cashTendered,
+          paynowRef: event.paynowRef || 'PN-' + Math.floor(10000000 + Math.random() * 90000000),
+          status: (response.order_status?.toLowerCase() as any) || 'pending',
+          createdAt: response.order_created_at || new Date().toISOString()
+        };
+
+        this.finalizeOrderAndNavigate(newOrder, stall);
+      },
+      error: (err) => {
+        this.isSubmittingOrder.set(false);
+        console.warn('Backend order API currently unreachable, falling back to offline order:', err);
+
+        // Fallback local order creation to prevent diner disruption
+        const orderId = 'ord-' + Date.now();
+        const seq = Math.floor(100 + Math.random() * 900);
+        const orderNumber = `HF-${seq}`;
+
+        const fallbackOrder: Order = {
+          id: orderId,
+          numericStallId: stallNumericId,
+          orderNumber,
+          dailySequence: seq,
+          diningOption: this.diningOption(),
+          tableOrBuzzerNumber: this.diningOption() === 'dine_in' ? this.tableNumber : 'Takeaway Pickup',
+          items: [...this.cart()],
+          subtotal: this.rawSubtotal(),
+          takeawayFee: this.takeawayFee(),
+          tax: 0,
+          discount: this.discountAmount(),
+          total: grandTotal,
+          paymentMethod: event.method,
+          paymentStatus: 'paid',
+          cashTendered: event.cashTendered,
+          paynowRef: event.paynowRef || 'PN-' + Math.floor(10000000 + Math.random() * 90000000),
+          status: 'pending',
+          createdAt: new Date().toISOString()
+        };
+
+        this.finalizeOrderAndNavigate(fallbackOrder, stall);
+      }
+    });
+  }
+
+  private finalizeOrderAndNavigate(order: Order, stall: StallAccount): void {
     // 1. Record in stall's KDS orders storage
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
         const stallOrdersKey = `hawkerflow_orders_${stall.id}`;
         const stored = window.localStorage.getItem(stallOrdersKey);
         const list: Order[] = stored ? JSON.parse(stored) : [];
-        list.unshift(newOrder);
+        list.unshift(order);
         window.localStorage.setItem(stallOrdersKey, JSON.stringify(list));
       }
     } catch (e) {}
 
     // 2. Record in Customer Service for loyalty points, stamp cards & order history
-    this.customerService.recordCustomerOrder(newOrder, stall.id, stall.stallName, stall.emoji || '🍲');
+    this.customerService.recordCustomerOrder(order, stall.id, stall.stallName, stall.emoji || '🍲');
 
-    // 3. Navigate to live Order Status Tracker
-    this.router.navigate(['/order-tracker', newOrder.id], {
-      state: { order: newOrder, stallName: stall.stallName, stallEmoji: stall.emoji }
+    // 3. Clear cart
+    this.cart.set([]);
+
+    // 4. Navigate to live Order Status Tracker
+    this.router.navigate(['/order-tracker', order.id], {
+      state: { order, stallName: stall.stallName, stallEmoji: stall.emoji }
     });
   }
 }

@@ -14,6 +14,7 @@ export interface SelectedModifier {
 export interface OrderItem {
   id: string; // unique item instance id in cart
   menuItemId: string;
+  numericDishId?: number;
   name: string;
   chineseName?: string;
   basePrice: number;
@@ -26,6 +27,7 @@ export interface OrderItem {
 
 export interface Order {
   id: string;
+  numericStallId?: number;
   orderNumber: string; // e.g. "HF-101"
   dailySequence: number;
   diningOption: DiningOption;

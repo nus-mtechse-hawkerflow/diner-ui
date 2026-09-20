@@ -1,7 +1,7 @@
 import { Injectable, signal, computed, effect, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { CustomerUser, CustomerVoucher, CustomerStampCard, CustomerTier } from '../models/customer.model';
-import { Order } from '../models/order.model';
+import { Order, OrderStatus } from '../models/order.model';
 
 const CUSTOMER_SESSION_KEY = 'hawkerflow_customer_session_v1';
 const CUSTOMER_VOUCHERS_KEY = 'hawkerflow_customer_vouchers_v1';
@@ -144,6 +144,10 @@ export class CustomerService {
 
   readonly activeVouchersCount = computed(() => {
     return this.vouchers().filter(v => !v.isUsed).length;
+  });
+
+  readonly activeCustomerOrders = computed(() => {
+    return this.customerOrders().filter(o => o.status === 'pending' || o.status === 'preparing' || o.status === 'ready');
   });
 
   constructor() {
@@ -416,5 +420,29 @@ export class CustomerService {
 
     this.vouchers.update(list => [newVoucher, ...list]);
     return true;
+  }
+
+  updateOrderStatus(orderId: string | number, status: OrderStatus): void {
+    const idStr = String(orderId);
+    const numId = Number(orderId);
+    const now = new Date().toISOString();
+
+    this.customerOrders.update(orders =>
+      orders.map(o => {
+        const isMatch = o.id === idStr || o.id === `ord-${idStr}` || (numId && o.dailySequence === numId);
+        if (isMatch) {
+          const updated: Order = { ...o, status };
+          if (status === 'completed' && !o.completedAt) {
+            updated.completedAt = now;
+          } else if (status === 'ready' && !o.readyAt) {
+            updated.readyAt = now;
+          } else if (status === 'preparing' && !o.startedPrepAt) {
+            updated.startedPrepAt = now;
+          }
+          return updated;
+        }
+        return o;
+      })
+    );
   }
 }

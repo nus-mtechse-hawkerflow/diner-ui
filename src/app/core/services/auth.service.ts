@@ -2,6 +2,7 @@ import { Injectable, signal, computed, effect, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { StallAccount, UserSession } from '../models/auth.model';
 import { PRESET_STALLS } from '../mock/initial-data';
+import { HawkerApiService } from './hawker-api.service';
 
 const STALLS_STORAGE_KEY = 'hawkerflow_stalls_v1';
 const SESSION_STORAGE_KEY = 'hawkerflow_session_v1';
@@ -11,9 +12,11 @@ const SESSION_STORAGE_KEY = 'hawkerflow_session_v1';
 })
 export class AuthService {
   private router = inject(Router);
+  private hawkerApiService = inject(HawkerApiService);
 
   readonly allStalls = signal<StallAccount[]>(this.loadStalls());
   readonly currentSession = signal<UserSession | null>(this.loadSession());
+  readonly isLoadingStalls = signal<boolean>(false);
 
   readonly isAuthenticated = computed(() => this.currentSession() !== null);
 
@@ -21,13 +24,15 @@ export class AuthService {
     const session = this.currentSession();
     const stalls = this.allStalls();
     if (session) {
-      const match = stalls.find(s => s.id === session.stallId);
+      const match = stalls.find(s => s.id === session.stallId || String(s.numericId) === session.stallId);
       if (match) return match;
     }
     return stalls[0] || PRESET_STALLS[0];
   });
 
   constructor() {
+    this.loadStallsFromBackend();
+
     effect(() => {
       try {
         if (typeof window !== 'undefined' && window.localStorage) {
@@ -40,6 +45,26 @@ export class AuthService {
         }
       } catch (e) {
         // storage fallback
+      }
+    });
+  }
+
+  /**
+   * Loads hawker stalls dynamically from the backend API:
+   * GET http://localhost:8080/hawkerflow/v1/hawker/stalls
+   */
+  loadStallsFromBackend(): void {
+    this.isLoadingStalls.set(true);
+    this.hawkerApiService.getStalls().subscribe({
+      next: (stalls) => {
+        this.isLoadingStalls.set(false);
+        if (stalls && stalls.length > 0) {
+          this.allStalls.set(stalls);
+        }
+      },
+      error: (err) => {
+        this.isLoadingStalls.set(false);
+        console.warn('Backend stalls API currently unreachable, using fallback dataset:', err);
       }
     });
   }

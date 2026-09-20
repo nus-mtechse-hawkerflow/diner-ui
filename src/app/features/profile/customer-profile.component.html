@@ -67,12 +67,22 @@
       <div class="space-y-2.5">
         @for (ord of customerOrders(); track ord.id) {
           <div class="p-4 rounded-3xl bg-slate-900 border border-slate-800 shadow-md flex items-center justify-between gap-3">
-            <div class="space-y-1">
-              <div class="flex items-center gap-2">
+            <div class="space-y-1 min-w-0 flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
                 <span class="font-black font-mono text-sm text-white">#{{ ord.orderNumber }}</span>
                 <span class="px-2 py-0.5 rounded text-[10px] uppercase font-bold"
                   [ngClass]="ord.diningOption === 'dine_in' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-orange-950 text-orange-300 border border-orange-800'">
                   {{ ord.diningOption === 'dine_in' ? 'Dine-In' : 'Takeaway' }}
+                </span>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider"
+                  [ngClass]="{
+                    'bg-amber-500/20 text-amber-300 border border-amber-500/30': ord.status === 'pending',
+                    'bg-blue-500/20 text-blue-300 border border-blue-500/30': ord.status === 'preparing',
+                    'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 animate-pulse': ord.status === 'ready',
+                    'bg-emerald-950/60 text-emerald-300 border border-emerald-800/80': ord.status === 'completed',
+                    'bg-rose-950 text-rose-400 border border-rose-800': ord.status === 'cancelled'
+                  }">
+                  {{ ord.status === 'ready' ? '🔥 Ready' : (ord.status === 'preparing' ? '👨‍🍳 Cooking' : ord.status) }}
                 </span>
               </div>
               <p class="text-xs text-slate-300 line-clamp-1">
@@ -89,14 +99,34 @@
               <div class="font-black font-mono text-sm text-white">
                 \${{ ord.total.toFixed(2) }}
               </div>
-              <button
-                type="button"
-                (click)="selectedOrderForReceipt.set(ord)"
-                class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[11px] flex items-center gap-1 cursor-pointer"
-              >
-                <app-icon name="receipt" [size]="12"></app-icon>
-                <span>Receipt</span>
-              </button>
+              <div class="flex items-center gap-1 justify-end flex-wrap">
+                @if (ord.status !== 'completed' && ord.status !== 'cancelled') {
+                  <button
+                    type="button"
+                    (click)="trackOrder(ord.id)"
+                    class="px-2.5 py-1 rounded-lg bg-orange-600 hover:bg-orange-500 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer shadow-sm"
+                  >
+                    <app-icon name="clock" [size]="12"></app-icon>
+                    <span>Track</span>
+                  </button>
+                  <button
+                    type="button"
+                    (click)="markCompleted(ord)"
+                    class="px-2 py-1 rounded-lg bg-emerald-900/60 hover:bg-emerald-800 text-emerald-300 border border-emerald-700/60 font-bold text-[10px] cursor-pointer"
+                    title="Mark as collected"
+                  >
+                    Done
+                  </button>
+                }
+                <button
+                  type="button"
+                  (click)="selectedOrderForReceipt.set(ord)"
+                  class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                >
+                  <app-icon name="receipt" [size]="12"></app-icon>
+                  <span>Receipt</span>
+                </button>
+              </div>
             </div>
           </div>
         }
