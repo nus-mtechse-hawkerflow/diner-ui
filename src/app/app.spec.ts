@@ -60,16 +60,15 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     expect(customerService.currentCustomer()?.name).toContain('Guest');
   });
 
-  it('should authenticate demo user and load points & vouchers', () => {
+  it('should authenticate user and set customer session', () => {
     const res = customerService.login('+65 9123 4567');
     expect(res.success).toBe(true);
     expect(customerService.isGuest()).toBe(false);
-    expect(customerService.currentCustomer()?.name).toContain('Uncle Tan');
-    expect(customerService.currentCustomer()?.loyaltyPoints).toBeGreaterThanOrEqual(300);
-    expect(customerService.vouchers().length).toBeGreaterThan(0);
+    expect(customerService.currentCustomer()?.phone).toBe('+65 9123 4567');
+    expect(customerService.currentCustomer()?.name).toContain('4567');
   });
 
-  it('should register a new customer with welcome bonus and vouchers', () => {
+  it('should register a new customer', () => {
     const newUser = customerService.register({
       name: 'Sarah Chen',
       phone: '+65 9876 5432',
@@ -78,13 +77,12 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
 
     expect(newUser).toBeDefined();
     expect(customerService.currentCustomer()?.name).toBe('Sarah Chen');
-    expect(customerService.currentCustomer()?.loyaltyPoints).toBe(100);
-    expect(customerService.vouchers().some(v => v.code === 'WELCOME5')).toBe(true);
+    expect(customerService.currentCustomer()?.phone).toBe('+65 9876 5432');
+    expect(customerService.currentCustomer()?.email).toBe('sarah.chen@gmail.com');
   });
 
-  it('should earn loyalty points and stamps when completing a hawker order', () => {
+  it('should record customer order in order history', () => {
     customerService.login('+65 9123 4567');
-    const initialPts = customerService.currentCustomer()?.loyaltyPoints ?? 0;
 
     const mockOrder: Order = {
       id: 'cust-ord-99',
@@ -117,29 +115,21 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
 
     customerService.recordCustomerOrder(
       mockOrder,
-      'stall-ah-huat',
+      'stall-1',
       'Ah Huat Hainanese Delights',
       '🍗'
     );
 
-    // 13 dollars = 13 points
-    expect(customerService.currentCustomer()?.loyaltyPoints).toBe(initialPts + 13);
-    expect(customerService.customerOrders().length).toBeGreaterThan(0);
+    expect(customerService.customerOrders().length).toBe(1);
+    expect(customerService.customerOrders()[0].id).toBe('cust-ord-99');
+
+    customerService.clearCustomerOrders();
+    expect(customerService.customerOrders().length).toBe(0);
   });
 
-  it('should redeem points for discount voucher', () => {
-    customerService.login('+65 9123 4567');
-    const prevPoints = customerService.currentCustomer()?.loyaltyPoints ?? 0;
-
-    const redeemed = customerService.redeemPointsForVoucher(50, '$2 Off Any Dish', 2.00);
-    expect(redeemed).toBe(true);
-    expect(customerService.currentCustomer()?.loyaltyPoints).toBe(prevPoints - 50);
-    expect(customerService.vouchers().some(v => v.title === '$2 Off Any Dish')).toBe(true);
-  });
-
-  it('should list all available hawker stalls for diners', () => {
+  it('should initialize stall list signal', () => {
     const stalls = authService.allStalls();
-    expect(stalls.length).toBeGreaterThan(0);
+    expect(Array.isArray(stalls)).toBe(true);
   });
 
   it('should fetch hawker stalls from GET http://localhost:8080/hawkerflow/v1/hawker/stalls and map correctly', () => {
@@ -369,5 +359,71 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     const updatedOrder = customerService.customerOrders().find(o => o.id === '88');
     expect(updatedOrder?.status).toBe('completed');
     expect(updatedOrder?.completedAt).toBeDefined();
+  });
+
+  it('should process COLLECTED status notification from queue and update order to completed', () => {
+    const testOrder: Order = {
+      id: '99',
+      orderNumber: 'HF-099',
+      dailySequence: 99,
+      diningOption: 'dine_in',
+      tableOrBuzzerNumber: 'Table 09',
+      items: [],
+      subtotal: 15,
+      takeawayFee: 0,
+      tax: 0,
+      discount: 0,
+      total: 15,
+      paymentMethod: 'paynow',
+      paymentStatus: 'paid',
+      status: 'ready',
+      createdAt: new Date().toISOString()
+    };
+    customerService.customerOrders.set([testOrder]);
+
+    const snsNotification = {
+      Type: 'Notification',
+      MessageId: 'msg-collected-123',
+      TopicArn: SNS_ORDER_STATUS_TOPIC_ARN,
+      Message: JSON.stringify({
+        event_type: 'OrderCollected',
+        data: {
+          order_id: 99,
+          stall_id: 1,
+          status: 'COLLECTED'
+        }
+      }),
+      Timestamp: new Date().toISOString()
+    };
+
+    const event = orderNotificationService.processSqsMessage(JSON.stringify(snsNotification));
+
+    expect(event).toBeDefined();
+    expect(event?.orderId).toBe('99');
+    expect(event?.status).toBe('completed');
+
+    // Verify order in customer service was updated to 'completed'
+    const updatedOrder = customerService.customerOrders().find(o => o.id === '99');
+    expect(updatedOrder?.status).toBe('completed');
+    expect(updatedOrder?.completedAt).toBeDefined();
+  });
+
+  it('should display Sign In / Register in orders page when diner is in guest mode and Sign Out when authenticated', async () => {
+    const { CustomerProfileComponent } = await import('./features/profile/customer-profile.component');
+    const fixture = TestBed.createComponent(CustomerProfileComponent);
+    
+    // In guest mode
+    customerService.continueAsGuest();
+    fixture.detectChanges();
+    let compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('Sign In / Register');
+    expect(compiled.querySelector('a[href="/auth"]')?.textContent).toContain('Sign In / Register');
+
+    // In logged-in mode
+    customerService.login('+65 9123 4567');
+    fixture.detectChanges();
+    compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).not.toContain('Sign In / Register');
+    expect(compiled.querySelector('button[title*="Sign Out"]')).toBeTruthy();
   });
 });

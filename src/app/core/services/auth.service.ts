@@ -1,11 +1,40 @@
-import { Injectable, signal, computed, effect, inject } from '@angular/core';
+import { Injectable, signal, computed, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { StallAccount, UserSession } from '../models/auth.model';
-import { PRESET_STALLS } from '../mock/initial-data';
 import { HawkerApiService } from './hawker-api.service';
 
-const STALLS_STORAGE_KEY = 'hawkerflow_stalls_v1';
-const SESSION_STORAGE_KEY = 'hawkerflow_session_v1';
+const DEFAULT_EMPTY_STALL: StallAccount = {
+  id: '',
+  stallName: 'Hawker Stall',
+  hawkerCentreName: 'Hawker Centre',
+  unitNumber: '#01-01',
+  uenNumber: '',
+  contactNumber: '',
+  ownerName: '',
+  email: '',
+  emoji: '🍲',
+  cuisineCategory: 'Hawker Food',
+  settings: {
+    stallName: 'Hawker Stall',
+    hawkerCentreName: 'Hawker Centre',
+    unitNumber: '#01-01',
+    uenNumber: '',
+    contactNumber: '',
+    currencySymbol: 'SGD $',
+    enableTakeawayFee: true,
+    takeawayFeeAmount: 0.30,
+    enableGst: false,
+    gstRate: 0.09,
+    isDarkTheme: false,
+    soundAlertsEnabled: true,
+    soundVolume: 0.8,
+    kdsWarningThresholdMins: 5,
+    kdsCriticalThresholdMins: 10
+  },
+  initialCategories: [],
+  initialMenuItems: [],
+  initialOrders: []
+};
 
 @Injectable({
   providedIn: 'root'
@@ -14,8 +43,8 @@ export class AuthService {
   private router = inject(Router);
   private hawkerApiService = inject(HawkerApiService);
 
-  readonly allStalls = signal<StallAccount[]>(this.loadStalls());
-  readonly currentSession = signal<UserSession | null>(this.loadSession());
+  readonly allStalls = signal<StallAccount[]>([]);
+  readonly currentSession = signal<UserSession | null>(null);
   readonly isLoadingStalls = signal<boolean>(false);
 
   readonly isAuthenticated = computed(() => this.currentSession() !== null);
@@ -27,26 +56,11 @@ export class AuthService {
       const match = stalls.find(s => s.id === session.stallId || String(s.numericId) === session.stallId);
       if (match) return match;
     }
-    return stalls[0] || PRESET_STALLS[0];
+    return stalls[0] || DEFAULT_EMPTY_STALL;
   });
 
   constructor() {
     this.loadStallsFromBackend();
-
-    effect(() => {
-      try {
-        if (typeof window !== 'undefined' && window.localStorage) {
-          window.localStorage.setItem(STALLS_STORAGE_KEY, JSON.stringify(this.allStalls()));
-          if (this.currentSession()) {
-            window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(this.currentSession()));
-          } else {
-            window.localStorage.removeItem(SESSION_STORAGE_KEY);
-          }
-        }
-      } catch (e) {
-        // storage fallback
-      }
-    });
   }
 
   /**
@@ -67,42 +81,6 @@ export class AuthService {
         console.warn('Backend stalls API currently unreachable, using fallback dataset:', err);
       }
     });
-  }
-
-  private loadStalls(): StallAccount[] {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const stored = window.localStorage.getItem(STALLS_STORAGE_KEY);
-        if (stored) {
-          const parsed: StallAccount[] = JSON.parse(stored);
-          if (parsed && parsed.length > 0) return parsed;
-        }
-      }
-    } catch (e) {
-      // fallback
-    }
-    return PRESET_STALLS;
-  }
-
-  private loadSession(): UserSession | null {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const stored = window.localStorage.getItem(SESSION_STORAGE_KEY);
-        if (stored) {
-          return JSON.parse(stored);
-        }
-      }
-    } catch (e) {
-      // fallback
-    }
-    // Default to first preset stall session on initial load
-    return {
-      stallId: PRESET_STALLS[0].id,
-      email: PRESET_STALLS[0].email,
-      ownerName: PRESET_STALLS[0].ownerName,
-      role: 'owner',
-      loggedInAt: new Date().toISOString()
-    };
   }
 
   login(identifier: string, password?: string): { success: boolean; error?: string } {

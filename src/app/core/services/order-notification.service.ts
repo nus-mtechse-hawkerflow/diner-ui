@@ -160,13 +160,34 @@ export class OrderNotificationService implements OnDestroy {
       if (orderId === undefined || orderId === null) return null;
 
       let mappedStatus: OrderStatus = 'pending';
-      if (rawStatus === 'PREPARING' || rawStatus === 'ACCEPTED' || rawStatus === 'IN_PROGRESS' || rawStatus === 'COOKING') {
-        mappedStatus = 'preparing';
-      } else if (rawStatus === 'READY') {
-        mappedStatus = 'ready';
-      } else if (rawStatus === 'COMPLETED') {
+      if (
+        rawStatus === 'COMPLETED' ||
+        rawStatus === 'COLLECTED' ||
+        eventType === 'OrderCompleted' ||
+        eventType === 'OrderCollected' ||
+        eventType.toUpperCase().includes('COLLECT') ||
+        eventType.toUpperCase().includes('COMPLETE')
+      ) {
         mappedStatus = 'completed';
-      } else if (rawStatus === 'CANCELLED' || rawStatus === 'REJECTED') {
+      } else if (
+        rawStatus === 'PREPARING' ||
+        rawStatus === 'ACCEPTED' ||
+        rawStatus === 'IN_PROGRESS' ||
+        rawStatus === 'COOKING' ||
+        eventType === 'OrderAccepted' ||
+        eventType === 'OrderPreparing'
+      ) {
+        mappedStatus = 'preparing';
+      } else if (
+        rawStatus === 'READY' ||
+        eventType === 'OrderReady'
+      ) {
+        mappedStatus = 'ready';
+      } else if (
+        rawStatus === 'CANCELLED' ||
+        rawStatus === 'REJECTED' ||
+        eventType === 'OrderCancelled'
+      ) {
         mappedStatus = 'cancelled';
       }
 

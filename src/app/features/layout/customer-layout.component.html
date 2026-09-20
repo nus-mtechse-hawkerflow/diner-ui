@@ -25,15 +25,14 @@
       <!-- Right Header Actions -->
       <div class="flex items-center gap-2">
         
-        <!-- Customer Points Pill / Guest Prompt -->
+        <!-- Customer Identity Pill / Guest Prompt -->
         @if (currentCustomer() && !isGuest()) {
           <a
-            routerLink="/rewards"
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/30 text-amber-300 text-xs font-bold hover:scale-105 transition-all cursor-pointer shadow-xs"
+            routerLink="/profile"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-bold transition-all cursor-pointer shadow-xs"
           >
-            <span>🪙</span>
-            <span>{{ currentCustomer()?.loyaltyPoints }} pts</span>
-            <span class="hidden sm:inline text-[10px] text-amber-400 font-medium">({{ currentCustomer()?.tier }})</span>
+            <span>{{ currentCustomer()?.avatarEmoji || '🥢' }}</span>
+            <span class="max-w-[120px] truncate">{{ currentCustomer()?.name }}</span>
           </a>
         } @else {
           <a
@@ -131,21 +130,6 @@
       <span class="text-[10px]">My Orders</span>
       @if (customerOrders().length > 0) {
         <span class="absolute top-0 right-1 w-2 h-2 rounded-full bg-orange-500"></span>
-      }
-    </a>
-
-    <!-- Rewards & Vouchers Tab -->
-    <a
-      routerLink="/rewards"
-      routerLinkActive="text-orange-500 font-bold"
-      class="flex flex-col items-center gap-1 text-slate-400 hover:text-slate-200 transition-colors p-1 relative"
-    >
-      <app-icon name="sparkles" [size]="20"></app-icon>
-      <span class="text-[10px]">Rewards</span>
-      @if (activeVouchersCount() > 0) {
-        <span class="absolute -top-0.5 right-0 px-1 py-0.2 rounded-full bg-amber-500 text-slate-950 font-black text-[9px]">
-          {{ activeVouchersCount() }}
-        </span>
       }
     </a>
 

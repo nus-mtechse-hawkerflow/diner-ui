@@ -54,4 +54,8 @@ export class CustomerProfileComponent {
     this.customerService.logout();
     this.router.navigate(['/auth']);
   }
+
+  onClearOrders(): void {
+    this.customerService.clearCustomerOrders();
+  }
 }

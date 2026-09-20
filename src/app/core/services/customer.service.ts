@@ -1,124 +1,7 @@
-import { Injectable, signal, computed, effect, inject } from '@angular/core';
+import { Injectable, signal, computed, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { CustomerUser, CustomerVoucher, CustomerStampCard, CustomerTier } from '../models/customer.model';
 import { Order, OrderStatus } from '../models/order.model';
-
-const CUSTOMER_SESSION_KEY = 'hawkerflow_customer_session_v1';
-const CUSTOMER_VOUCHERS_KEY = 'hawkerflow_customer_vouchers_v1';
-const CUSTOMER_STAMPS_KEY = 'hawkerflow_customer_stamps_v1';
-const CUSTOMER_ORDERS_KEY = 'hawkerflow_customer_orders_v1';
-
-export const INITIAL_PRESET_CUSTOMERS: CustomerUser[] = [
-  {
-    id: 'cust-uncle-tan',
-    name: 'Uncle Tan (陈伯)',
-    email: 'uncletan@hawkerkaki.sg',
-    phone: '+65 9123 4567',
-    isGuest: false,
-    loyaltyPoints: 340,
-    tier: 'Gold Kaki',
-    avatarEmoji: '👴',
-    registeredAt: '2025-01-15T08:30:00.000Z'
-  },
-  {
-    id: 'cust-chloe-lim',
-    name: 'Chloe Lim',
-    email: 'chloe.lim@gmail.com',
-    phone: '+65 9876 5432',
-    isGuest: false,
-    loyaltyPoints: 185,
-    tier: 'Silver Kaki',
-    avatarEmoji: '👩',
-    registeredAt: '2025-06-20T12:00:00.000Z'
-  }
-];
-
-export const INITIAL_VOUCHERS: CustomerVoucher[] = [
-  {
-    id: 'vouch-welcome-5',
-    code: 'WELCOME5',
-    title: '$5.00 Hawker Welcome Voucher',
-    description: 'Enjoy $5 off on any hawker meal across all stalls. Min spend $10.',
-    discountType: 'fixed',
-    discountValue: 5.00,
-    minSpend: 10.00,
-    validUntil: '2026-12-31',
-    isUsed: false,
-    icon: 'sparkles'
-  },
-  {
-    id: 'vouch-kopi-free',
-    code: 'FREEKOPI',
-    title: 'Free Traditional Kopi / Teh',
-    description: 'Complimentary hot kopi or teh with any main dish order.',
-    discountType: 'fixed',
-    discountValue: 1.60,
-    minSpend: 5.00,
-    applicableStallId: 'stall-uncle-lim',
-    validUntil: '2026-12-31',
-    isUsed: false,
-    icon: 'coffee'
-  },
-  {
-    id: 'vouch-maxwell-10',
-    code: 'MAXWELL10',
-    title: '10% Maxwell Food Centre Discount',
-    description: 'Get 10% off your total bill at Ah Huat Hainanese Delights.',
-    discountType: 'percentage',
-    discountValue: 10,
-    minSpend: 8.00,
-    applicableStallId: 'stall-ah-huat',
-    validUntil: '2026-12-31',
-    isUsed: false,
-    icon: 'flame'
-  },
-  {
-    id: 'vouch-seafood-3',
-    code: 'SEAFOOD3',
-    title: '$3.00 OFF Newton BBQ Seafood',
-    description: 'Discount on Sambal Stingray & Grilled Seafood. Min spend $15.',
-    discountType: 'fixed',
-    discountValue: 3.00,
-    minSpend: 15.00,
-    applicableStallId: 'stall-newton-bbq',
-    validUntil: '2026-12-31',
-    isUsed: false,
-    icon: 'soup'
-  }
-];
-
-export const INITIAL_STAMP_CARDS: CustomerStampCard[] = [
-  {
-    id: 'stamp-ah-huat',
-    stallId: 'stall-ah-huat',
-    stallName: 'Ah Huat Hainanese Delights',
-    stallEmoji: '🍗',
-    currentStamps: 7,
-    maxStamps: 10,
-    rewardDescription: 'Free Chicken Rice Set (Worth $6.50)',
-    claimedRewardsCount: 1
-  },
-  {
-    id: 'stamp-uncle-lim',
-    stallId: 'stall-uncle-lim',
-    stallName: "Uncle Lim's Kopi & Toast",
-    stallEmoji: '☕',
-    currentStamps: 8,
-    maxStamps: 10,
-    rewardDescription: 'Free Traditional Kopi Set + Kaya Toast',
-    claimedRewardsCount: 3
-  },
-  {
-    id: 'stamp-airport-noodles',
-    stallId: 'stall-old-airport',
-    stallName: 'Old Airport Road Famous Noodles',
-    stallEmoji: '🍜',
-    currentStamps: 4,
-    maxStamps: 10,
-    rewardDescription: 'Free Signature Wonton Mee',
-    claimedRewardsCount: 0
-  }
-];
 
 @Injectable({
   providedIn: 'root'
@@ -126,11 +9,11 @@ export const INITIAL_STAMP_CARDS: CustomerStampCard[] = [
 export class CustomerService {
   private router = inject(Router);
 
-  readonly currentCustomer = signal<CustomerUser | null>(this.loadCustomerSession());
-  readonly vouchers = signal<CustomerVoucher[]>(this.loadVouchers());
-  readonly stampCards = signal<CustomerStampCard[]>(this.loadStampCards());
+  readonly currentCustomer = signal<CustomerUser | null>(null);
+  readonly vouchers = signal<CustomerVoucher[]>([]);
+  readonly stampCards = signal<CustomerStampCard[]>([]);
   readonly appliedVoucher = signal<CustomerVoucher | null>(null);
-  readonly customerOrders = signal<Order[]>(this.loadCustomerOrders());
+  readonly customerOrders = signal<Order[]>([]);
 
   readonly isAuthenticated = computed(() => {
     const cust = this.currentCustomer();
@@ -150,67 +33,6 @@ export class CustomerService {
     return this.customerOrders().filter(o => o.status === 'pending' || o.status === 'preparing' || o.status === 'ready');
   });
 
-  constructor() {
-    effect(() => {
-      try {
-        if (typeof window !== 'undefined' && window.localStorage) {
-          const cust = this.currentCustomer();
-          if (cust) {
-            window.localStorage.setItem(CUSTOMER_SESSION_KEY, JSON.stringify(cust));
-          } else {
-            window.localStorage.removeItem(CUSTOMER_SESSION_KEY);
-          }
-          window.localStorage.setItem(CUSTOMER_VOUCHERS_KEY, JSON.stringify(this.vouchers()));
-          window.localStorage.setItem(CUSTOMER_STAMPS_KEY, JSON.stringify(this.stampCards()));
-          window.localStorage.setItem(CUSTOMER_ORDERS_KEY, JSON.stringify(this.customerOrders()));
-        }
-      } catch (e) {
-        // storage fallback
-      }
-    });
-  }
-
-  private loadCustomerSession(): CustomerUser | null {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const stored = window.localStorage.getItem(CUSTOMER_SESSION_KEY);
-        if (stored) return JSON.parse(stored);
-      }
-    } catch (e) {}
-    // Default to Uncle Tan demo session for immediate rich experience
-    return INITIAL_PRESET_CUSTOMERS[0];
-  }
-
-  private loadVouchers(): CustomerVoucher[] {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const stored = window.localStorage.getItem(CUSTOMER_VOUCHERS_KEY);
-        if (stored) return JSON.parse(stored);
-      }
-    } catch (e) {}
-    return INITIAL_VOUCHERS;
-  }
-
-  private loadStampCards(): CustomerStampCard[] {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const stored = window.localStorage.getItem(CUSTOMER_STAMPS_KEY);
-        if (stored) return JSON.parse(stored);
-      }
-    } catch (e) {}
-    return INITIAL_STAMP_CARDS;
-  }
-
-  private loadCustomerOrders(): Order[] {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const stored = window.localStorage.getItem(CUSTOMER_ORDERS_KEY);
-        if (stored) return JSON.parse(stored);
-      }
-    } catch (e) {}
-    return [];
-  }
-
   continueAsGuest(name?: string, phone?: string): CustomerUser {
     const guestUser: CustomerUser = {
       id: 'guest-' + Date.now(),
@@ -227,39 +49,19 @@ export class CustomerService {
     return guestUser;
   }
 
-  quickLoginPreset(customerId: string): void {
-    const preset = INITIAL_PRESET_CUSTOMERS.find(c => c.id === customerId);
-    if (preset) {
-      this.currentCustomer.set(preset);
-      this.router.navigate(['/stalls']);
-    }
-  }
-
   login(identifier: string): { success: boolean; error?: string } {
-    const term = identifier.trim().toLowerCase();
-    const match = INITIAL_PRESET_CUSTOMERS.find(
-      c =>
-        c.email?.toLowerCase() === term ||
-        c.phone?.includes(term) ||
-        c.name.toLowerCase().includes(term)
-    );
+    const term = identifier.trim();
+    if (!term) return { success: false, error: 'Identifier required' };
 
-    if (match) {
-      this.currentCustomer.set(match);
-      this.router.navigate(['/stalls']);
-      return { success: true };
-    }
-
-    // If not in presets, create active session for this user
     const newUser: CustomerUser = {
       id: 'cust-' + Date.now(),
-      name: identifier.split('@')[0],
-      email: identifier.includes('@') ? identifier : undefined,
-      phone: !identifier.includes('@') ? identifier : undefined,
+      name: term.includes('@') ? term.split('@')[0] : 'Diner ' + term.slice(-4),
+      email: term.includes('@') ? term : undefined,
+      phone: !term.includes('@') ? term : undefined,
       isGuest: false,
-      loyaltyPoints: 50,
+      loyaltyPoints: 0,
       tier: 'Bronze Kaki',
-      avatarEmoji: '😋',
+      avatarEmoji: '🥢',
       registeredAt: new Date().toISOString()
     };
     this.currentCustomer.set(newUser);
@@ -271,30 +73,15 @@ export class CustomerService {
     const newUser: CustomerUser = {
       id: 'cust-' + Date.now(),
       name: data.name.trim(),
-      email: data.email?.trim(),
+      email: data.email?.trim() || undefined,
       phone: data.phone.trim(),
       isGuest: false,
-      loyaltyPoints: 100, // 100 Welcome Points!
+      loyaltyPoints: 0,
       tier: 'Bronze Kaki',
-      avatarEmoji: '🌟',
+      avatarEmoji: '🥢',
       registeredAt: new Date().toISOString()
     };
 
-    // Add $5 Welcome voucher
-    const welcomeVoucher: CustomerVoucher = {
-      id: 'vouch-reg-' + Date.now(),
-      code: 'WELCOME5',
-      title: '$5.00 New Member Voucher',
-      description: 'Welcome to HawkerFlow! $5 off any order above $10.',
-      discountType: 'fixed',
-      discountValue: 5.00,
-      minSpend: 10.00,
-      validUntil: '2026-12-31',
-      isUsed: false,
-      icon: 'sparkles'
-    };
-
-    this.vouchers.update(list => [welcomeVoucher, ...list]);
     this.currentCustomer.set(newUser);
     this.router.navigate(['/stalls']);
     return newUser;
@@ -303,7 +90,12 @@ export class CustomerService {
   logout(): void {
     this.currentCustomer.set(null);
     this.appliedVoucher.set(null);
+    this.customerOrders.set([]);
     this.router.navigate(['/auth']);
+  }
+
+  clearCustomerOrders(): void {
+    this.customerOrders.set([]);
   }
 
   applyVoucher(voucher: CustomerVoucher): void {

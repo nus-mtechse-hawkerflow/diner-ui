@@ -54,14 +54,14 @@
               <div>
                 <div class="flex justify-between items-start font-semibold">
                   <span>{{ item.quantity }}x {{ item.name }}</span>
-                  <span>\${{ item.totalPrice.toFixed(2) }}</span>
+                  <span>${{ item.totalPrice.toFixed(2) }}</span>
                 </div>
                 @if (item.chineseName) {
                   <div class="text-[10px] text-slate-500">{{ item.chineseName }}</div>
                 }
                 @for (mod of item.selectedModifiers; track mod.optionId) {
                   <div class="text-[10px] text-slate-500 pl-3">
-                    + {{ mod.optionName }} @if (mod.priceDelta > 0) { (+\${{ mod.priceDelta.toFixed(2) }}) }
+                    + {{ mod.optionName }} @if (mod.priceDelta > 0) { (+${{ mod.priceDelta.toFixed(2) }}) }
                   </div>
                 }
                 @if (item.specialNotes) {
@@ -77,23 +77,23 @@
           <div class="py-3 border-b border-dashed border-slate-300 space-y-1">
             <div class="flex justify-between text-slate-600">
               <span>Subtotal</span>
-              <span>\${{ order.subtotal.toFixed(2) }}</span>
+              <span>${{ order.subtotal.toFixed(2) }}</span>
             </div>
             @if (order.takeawayFee > 0) {
               <div class="flex justify-between text-slate-600">
                 <span>Takeaway Packaging</span>
-                <span>\${{ order.takeawayFee.toFixed(2) }}</span>
+                <span>${{ order.takeawayFee.toFixed(2) }}</span>
               </div>
             }
             @if (order.tax > 0) {
               <div class="flex justify-between text-slate-600">
                 <span>GST (9% included)</span>
-                <span>\${{ order.tax.toFixed(2) }}</span>
+                <span>${{ order.tax.toFixed(2) }}</span>
               </div>
             }
             <div class="flex justify-between text-sm font-bold text-slate-950 pt-1 border-t border-slate-200">
               <span>TOTAL (SGD)</span>
-              <span>\${{ order.total.toFixed(2) }}</span>
+              <span>${{ order.total.toFixed(2) }}</span>
             </div>
           </div>
 
@@ -106,12 +106,12 @@
             @if (order.paymentMethod === 'cash') {
               <div class="flex justify-between text-slate-600">
                 <span>Cash Tendered:</span>
-                <span>\${{ (order.cashTendered || order.total).toFixed(2) }}</span>
+                <span>${{ (order.cashTendered || order.total).toFixed(2) }}</span>
               </div>
               @if (order.cashChange !== undefined) {
                 <div class="flex justify-between text-emerald-700 font-bold">
                   <span>Change Given:</span>
-                  <span>\${{ order.cashChange.toFixed(2) }}</span>
+                  <span>${{ order.cashChange.toFixed(2) }}</span>
                 </div>
               }
             }

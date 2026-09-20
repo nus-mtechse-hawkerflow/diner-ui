@@ -93,8 +93,9 @@ export class CustomerOrderTrackerComponent implements OnInit, OnDestroy {
               const rawStatus = (backendOrder.order_status || backendOrder.status || '').toUpperCase();
               let mapped: OrderStatus = 'pending';
               if (rawStatus === 'READY') mapped = 'ready';
-              else if (rawStatus === 'PREPARING' || rawStatus === 'ACCEPTED') mapped = 'preparing';
-              else if (rawStatus === 'COMPLETED') mapped = 'completed';
+              else if (rawStatus === 'PREPARING' || rawStatus === 'ACCEPTED' || rawStatus === 'IN_PROGRESS' || rawStatus === 'COOKING') mapped = 'preparing';
+              else if (rawStatus === 'COMPLETED' || rawStatus === 'COLLECTED') mapped = 'completed';
+              else if (rawStatus === 'CANCELLED' || rawStatus === 'REJECTED') mapped = 'cancelled';
 
               const fetchedOrder: Order = {
                 id: String(backendOrder.f_id || id),
@@ -165,8 +166,9 @@ export class CustomerOrderTrackerComponent implements OnInit, OnDestroy {
           const rawStatus = (backendOrder.order_status || backendOrder.status || '').toUpperCase();
           let mapped: OrderStatus = 'pending';
           if (rawStatus === 'READY') mapped = 'ready';
-          else if (rawStatus === 'PREPARING' || rawStatus === 'ACCEPTED') mapped = 'preparing';
-          else if (rawStatus === 'COMPLETED') mapped = 'completed';
+          else if (rawStatus === 'PREPARING' || rawStatus === 'ACCEPTED' || rawStatus === 'IN_PROGRESS' || rawStatus === 'COOKING') mapped = 'preparing';
+          else if (rawStatus === 'COMPLETED' || rawStatus === 'COLLECTED') mapped = 'completed';
+          else if (rawStatus === 'CANCELLED' || rawStatus === 'REJECTED') mapped = 'cancelled';
 
           const fetchedOrder: Order = {
             id: String(backendOrder.f_id || q),

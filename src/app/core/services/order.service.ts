@@ -17,13 +17,13 @@ export class OrderService {
   private hawkerApiService = inject(HawkerApiService);
 
   // Cart State
-  readonly cartItems = signal<OrderItem[]>(this.loadCart());
+  readonly cartItems = signal<OrderItem[]>([]);
   readonly diningOption = signal<DiningOption>('dine_in');
   readonly tableOrBuzzerNumber = signal<string>('');
   readonly orderNotes = signal<string>('');
 
   // Orders State
-  readonly orders = signal<Order[]>(this.loadOrders());
+  readonly orders = signal<Order[]>([]);
   readonly lastBumpedOrder = signal<Order | null>(null);
 
   // Cart Computations
@@ -81,75 +81,15 @@ export class OrderService {
   });
 
   constructor() {
-    // When stall changes, reload that stall's orders and cart
+    // When stall changes, reset that stall's orders and cart
     effect(() => {
       const stall = this.authService.currentStall();
       if (stall) {
-        this.orders.set(this.loadOrders());
-        this.cartItems.set(this.loadCart());
+        this.orders.set([]);
+        this.cartItems.set([]);
         this.lastBumpedOrder.set(null);
       }
     });
-
-    effect(() => {
-      const stall = this.authService.currentStall();
-      if (!stall) return;
-
-      const ordersKey = `hawkerflow_orders_${stall.id}`;
-      try {
-        if (typeof window !== 'undefined' && window.localStorage) {
-          window.localStorage.setItem(ordersKey, JSON.stringify(this.orders()));
-        }
-      } catch (e) {
-        // fallback
-      }
-    });
-
-    effect(() => {
-      const stall = this.authService.currentStall();
-      if (!stall) return;
-
-      const cartKey = `hawkerflow_cart_${stall.id}`;
-      try {
-        if (typeof window !== 'undefined' && window.localStorage) {
-          window.localStorage.setItem(cartKey, JSON.stringify(this.cartItems()));
-        }
-      } catch (e) {
-        // fallback
-      }
-    });
-  }
-
-  private loadOrders(): Order[] {
-    const stall = this.authService.currentStall();
-    if (!stall) return [];
-
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const stored = window.localStorage.getItem(`hawkerflow_orders_${stall.id}`);
-        if (stored) return JSON.parse(stored);
-      }
-    } catch (e) {
-      // fallback
-    }
-
-    return stall.initialOrders || [];
-  }
-
-  private loadCart(): OrderItem[] {
-    const stall = this.authService.currentStall();
-    if (!stall) return [];
-
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const stored = window.localStorage.getItem(`hawkerflow_cart_${stall.id}`);
-        if (stored) return JSON.parse(stored);
-      }
-    } catch (e) {
-      // fallback
-    }
-
-    return [];
   }
 
   // Cart Operations

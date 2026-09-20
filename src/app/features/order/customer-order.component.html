@@ -71,41 +71,6 @@
     }
   </div>
 
-  <!-- Applied Voucher Bar (if voucher selected) -->
-  @if (appliedVoucher()) {
-    <div class="p-3 rounded-2xl bg-emerald-950/60 border border-emerald-800 flex items-center justify-between text-xs text-emerald-300">
-      <div class="flex items-center gap-2">
-        <span class="text-base">🎉</span>
-        <div>
-          <span class="font-extrabold">{{ appliedVoucher()?.title }}</span>
-          <span class="text-[10px] opacity-80 block">Discount automatically applied at checkout</span>
-        </div>
-      </div>
-      <button
-        type="button"
-        (click)="removeVoucher()"
-        class="p-1 text-emerald-400 hover:text-white cursor-pointer"
-      >
-        <app-icon name="x" [size]="14"></app-icon>
-      </button>
-    </div>
-  } @else {
-    <!-- Vouchers prompt -->
-    <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-900 border border-slate-800 text-xs">
-      <div class="flex items-center gap-2 text-slate-300">
-        <app-icon name="sparkles" [size]="16" class="text-amber-400"></app-icon>
-        <span>Have a voucher or HawkerKaki points?</span>
-      </div>
-      <button
-        type="button"
-        (click)="showVoucherDrawer.set(true)"
-        class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs transition-colors cursor-pointer"
-      >
-        Apply Voucher
-      </button>
-    </div>
-  }
-
   <!-- Category Filter Tabs -->
   <div class="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
     @for (cat of categories(); track cat.id) {
@@ -161,7 +126,7 @@
               {{ item.description }}
             </p>
             <div class="mt-2 font-black font-mono text-sm text-white">
-              \${{ item.basePrice.toFixed(2) }}
+              ${{ item.basePrice.toFixed(2) }}
             </div>
           </div>
         </div>
@@ -186,12 +151,9 @@
         <div>
           <div class="flex items-center gap-2">
             <span class="font-bold text-xs text-slate-300">Your Basket</span>
-            @if (discountAmount() > 0) {
-              <span class="text-[10px] text-emerald-400 font-bold">(-\${{ discountAmount().toFixed(2) }} voucher)</span>
-            }
           </div>
           <div class="font-black font-mono text-lg text-white">
-            \${{ grandTotal().toFixed(2) }} SGD
+            ${{ grandTotal().toFixed(2) }} SGD
           </div>
         </div>
       </div>
@@ -226,55 +188,6 @@
     ></app-modifier-modal>
   }
 
-  <!-- VOUCHER SELECTOR DRAWER / MODAL -->
-  @if (showVoucherDrawer()) {
-    <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
-      <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-5 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
-        <div class="flex items-center justify-between pb-3 border-b border-slate-800">
-          <div class="flex items-center gap-2 text-white font-extrabold text-sm">
-            <app-icon name="sparkles" [size]="18" class="text-amber-400"></app-icon>
-            <span>Available Hawker Vouchers</span>
-          </div>
-          <button (click)="showVoucherDrawer.set(false)" class="p-1 text-slate-400 hover:text-white">
-            <app-icon name="x" [size]="18"></app-icon>
-          </button>
-        </div>
-
-        <div class="overflow-y-auto flex-1 space-y-2.5">
-          @for (vouch of vouchers(); track vouch.id) {
-            <div
-              (click)="onSelectVoucher(vouch)"
-              [class.border-emerald-500]="appliedVoucher()?.id === vouch.id"
-              [class.opacity-50]="vouch.isUsed"
-              class="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 hover:border-amber-500/80 transition-all flex items-start justify-between gap-3 cursor-pointer"
-            >
-              <div class="flex items-start gap-2.5">
-                <span class="p-2 rounded-xl bg-slate-900 text-amber-400">
-                  <app-icon [name]="vouch.icon" [size]="18"></app-icon>
-                </span>
-                <div>
-                  <h4 class="font-bold text-xs text-white">{{ vouch.title }}</h4>
-                  <p class="text-[11px] text-slate-400 mt-0.5">{{ vouch.description }}</p>
-                  <span class="inline-block mt-1 font-mono text-[10px] text-amber-400">Code: {{ vouch.code }}</span>
-                </div>
-              </div>
-
-              @if (vouch.isUsed) {
-                <span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-500 font-bold">Used</span>
-              } @else if (appliedVoucher()?.id === vouch.id) {
-                <span class="px-2 py-0.5 rounded text-[10px] bg-emerald-900 text-emerald-300 font-bold">Applied</span>
-              } @else {
-                <button type="button" class="px-2.5 py-1 rounded-lg bg-orange-600 text-white font-bold text-xs">
-                  Apply
-                </button>
-              }
-            </div>
-          }
-        </div>
-      </div>
-    </div>
-  }
-
   <!-- BASKET SUMMARY MODAL -->
   @if (showCartModal()) {
     <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
@@ -287,32 +200,42 @@
         </div>
 
         <div class="overflow-y-auto flex-1 space-y-2.5 text-xs">
-          @for (item of cart(); track item.id; let idx = $index) {
-            <div class="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex items-start justify-between gap-2">
-              <div>
-                <span class="font-bold text-white">{{ item.quantity }}x {{ item.name }}</span>
-                @for (mod of item.selectedModifiers; track mod.optionId) {
-                  <span class="block text-[10px] text-slate-400 pl-2">• {{ mod.optionName }}</span>
-                }
-                @if (item.specialNotes) {
-                  <span class="block text-[10px] text-amber-400 italic pl-2">"{{ item.specialNotes }}"</span>
-                }
-              </div>
-              <div class="flex items-center gap-2">
-                <span class="font-mono font-bold text-white">\${{ item.totalPrice.toFixed(2) }}</span>
-                <button (click)="removeCartItem(idx)" class="text-rose-400 hover:text-rose-300 p-1">
-                  <app-icon name="trash" [size]="14"></app-icon>
-                </button>
-              </div>
+          @if (cart().length === 0) {
+            <div class="py-10 text-center space-y-2">
+              <span class="text-3xl">🛒</span>
+              <p class="text-slate-300 font-bold text-sm">Your basket is empty</p>
+              <p class="text-[11px] text-slate-500">Add dishes from the menu to get started.</p>
             </div>
+          } @else {
+            @for (item of cart(); track item.id; let idx = $index) {
+              <div class="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex items-start justify-between gap-2">
+                <div>
+                  <span class="font-bold text-white">{{ item.quantity }}x {{ item.name }}</span>
+                  @for (mod of item.selectedModifiers; track mod.optionId) {
+                    <span class="block text-[10px] text-slate-400 pl-2">• {{ mod.optionName }}</span>
+                  }
+                  @if (item.specialNotes) {
+                    <span class="block text-[10px] text-amber-400 italic pl-2">"{{ item.specialNotes }}"</span>
+                  }
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="font-mono font-bold text-white">${{ item.totalPrice.toFixed(2) }}</span>
+                  <button (click)="removeCartItem(idx)" class="text-rose-400 hover:text-rose-300 p-1 cursor-pointer">
+                    <app-icon name="trash" [size]="14"></app-icon>
+                  </button>
+                </div>
+              </div>
+            }
           }
         </div>
 
         <div class="pt-3 border-t border-slate-800 flex items-center justify-between">
-          <span class="font-bold text-sm text-white">Total: \${{ grandTotal().toFixed(2) }}</span>
+          <span class="font-bold text-sm text-white">Total: ${{ grandTotal().toFixed(2) }}</span>
           <button
-            (click)="showCartModal.set(false); showPaymentModal.set(true)"
-            class="px-4 py-2 rounded-xl bg-orange-600 text-white font-bold text-xs"
+            type="button"
+            [disabled]="cart().length === 0"
+            (click)="proceedToPayment()"
+            class="px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-orange-600 cursor-pointer"
           >
             Checkout
           </button>

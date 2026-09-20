@@ -20,7 +20,7 @@ export class CustomerAuthComponent {
   guestPhone = '';
 
   // Login input
-  loginIdentifier = 'uncletan@hawkerkaki.sg';
+  loginIdentifier = '';
 
   // Register inputs
   regName = '';
@@ -29,10 +29,6 @@ export class CustomerAuthComponent {
 
   onGuestOrder(): void {
     this.customerService.continueAsGuest(this.guestName, this.guestPhone);
-  }
-
-  onQuickLoginPreset(customerId: string): void {
-    this.customerService.quickLoginPreset(customerId);
   }
 
   onFormLogin(): void {

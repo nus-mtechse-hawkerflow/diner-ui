@@ -9,7 +9,6 @@ import { HawkerApiService } from '../../core/services/hawker-api.service';
 import { StallAccount } from '../../core/models/auth.model';
 import { Category, MenuItem } from '../../core/models/menu.model';
 import { DiningOption, Order, OrderItem, PaymentMethod, SelectedModifier } from '../../core/models/order.model';
-import { CustomerVoucher } from '../../core/models/customer.model';
 import { BackendCreateOrderPayload, BackendDishOrder } from '../../core/models/hawker-api.model';
 import { ModifierModalComponent } from '../../shared/components/modifier-modal/modifier-modal.component';
 import { PaymentModalComponent } from '../../shared/components/payment-modal/payment-modal.component';
@@ -48,13 +47,9 @@ export class CustomerOrderComponent implements OnInit {
 
   cart = signal<OrderItem[]>([]);
   selectedItemForModifier = signal<MenuItem | null>(null);
-  showVoucherDrawer = signal<boolean>(false);
   showCartModal = signal<boolean>(false);
   showPaymentModal = signal<boolean>(false);
   isSubmittingOrder = signal<boolean>(false);
-
-  readonly appliedVoucher = this.customerService.appliedVoucher;
-  readonly vouchers = this.customerService.vouchers;
 
   constructor() {
     // When stalls are loaded or updated from backend, refresh current stall info if active
@@ -88,21 +83,13 @@ export class CustomerOrderComponent implements OnInit {
     // If stall has initial categories & items directly from backend API
     if (stall.initialCategories && stall.initialCategories.length > 0) {
       this.categories.set(stall.initialCategories);
+    } else {
+      this.categories.set([]);
     }
     if (stall.initialMenuItems && stall.initialMenuItems.length > 0) {
       this.items.set(stall.initialMenuItems);
-    }
-
-    // Load from localStorage if present
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const storedCats = window.localStorage.getItem(`hawkerflow_categories_${stall.id}`);
-        const storedItems = window.localStorage.getItem(`hawkerflow_menu_${stall.id}`);
-        if (storedCats) this.categories.set(JSON.parse(storedCats));
-        if (storedItems) this.items.set(JSON.parse(storedItems));
-      }
-    } catch (e) {
-      // fallback
+    } else {
+      this.items.set([]);
     }
   }
 
@@ -195,37 +182,16 @@ export class CustomerOrderComponent implements OnInit {
     return this.diningOption() === 'takeaway' ? 0.30 : 0;
   });
 
-  readonly discountAmount = computed(() => {
-    const voucher = this.appliedVoucher();
-    const subtotal = this.rawSubtotal();
-    if (!voucher || subtotal === 0) return 0;
-
-    if (voucher.minSpend && subtotal < voucher.minSpend) return 0;
-
-    if (voucher.discountType === 'fixed') {
-      return Math.min(voucher.discountValue, subtotal);
-    }
-    if (voucher.discountType === 'percentage') {
-      return Number(((subtotal * voucher.discountValue) / 100).toFixed(2));
-    }
-    return 0;
-  });
-
   readonly grandTotal = computed(() => {
     const sub = this.rawSubtotal();
     const take = this.takeawayFee();
-    const disc = this.discountAmount();
-    return Math.max(0, Number((sub + take - disc).toFixed(2)));
+    return Math.max(0, Number((sub + take).toFixed(2)));
   });
 
-  onSelectVoucher(vouch: CustomerVoucher): void {
-    if (vouch.isUsed) return;
-    this.customerService.applyVoucher(vouch);
-    this.showVoucherDrawer.set(false);
-  }
-
-  removeVoucher(): void {
-    this.customerService.removeVoucher();
+  proceedToPayment(): void {
+    if (this.cart().length === 0) return;
+    this.showCartModal.set(false);
+    this.showPaymentModal.set(true);
   }
 
   onCustomerPaymentComplete(event: {
@@ -233,6 +199,7 @@ export class CustomerOrderComponent implements OnInit {
     cashTendered?: number;
     paynowRef?: string;
   }): void {
+    if (this.cart().length === 0) return;
     this.showPaymentModal.set(false);
     this.showCartModal.set(false);
 
@@ -277,7 +244,7 @@ export class CustomerOrderComponent implements OnInit {
           subtotal: this.rawSubtotal(),
           takeawayFee: this.takeawayFee(),
           tax: 0,
-          discount: this.discountAmount(),
+          discount: 0,
           total: grandTotal,
           paymentMethod: event.method,
           paymentStatus: 'paid',
@@ -309,7 +276,7 @@ export class CustomerOrderComponent implements OnInit {
           subtotal: this.rawSubtotal(),
           takeawayFee: this.takeawayFee(),
           tax: 0,
-          discount: this.discountAmount(),
+          discount: 0,
           total: grandTotal,
           paymentMethod: event.method,
           paymentStatus: 'paid',
@@ -325,24 +292,13 @@ export class CustomerOrderComponent implements OnInit {
   }
 
   private finalizeOrderAndNavigate(order: Order, stall: StallAccount): void {
-    // 1. Record in stall's KDS orders storage
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const stallOrdersKey = `hawkerflow_orders_${stall.id}`;
-        const stored = window.localStorage.getItem(stallOrdersKey);
-        const list: Order[] = stored ? JSON.parse(stored) : [];
-        list.unshift(order);
-        window.localStorage.setItem(stallOrdersKey, JSON.stringify(list));
-      }
-    } catch (e) {}
-
-    // 2. Record in Customer Service for loyalty points, stamp cards & order history
+    // 1. Record in Customer Service for order history
     this.customerService.recordCustomerOrder(order, stall.id, stall.stallName, stall.emoji || '🍲');
 
-    // 3. Clear cart
+    // 2. Clear cart
     this.cart.set([]);
 
-    // 4. Navigate to live Order Status Tracker
+    // 3. Navigate to live Order Status Tracker
     this.router.navigate(['/order-tracker', order.id], {
       state: { order, stallName: stall.stallName, stallEmoji: stall.emoji }
     });

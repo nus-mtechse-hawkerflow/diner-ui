@@ -14,20 +14,28 @@
           <p class="text-xs text-orange-400 font-mono mt-0.5">
             {{ currentCustomer()?.phone || currentCustomer()?.email || 'Guest Mode' }}
           </p>
-          <span class="inline-block mt-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-            {{ currentCustomer()?.tier || 'Bronze Kaki' }}
-          </span>
         </div>
       </div>
 
-      <button
-        type="button"
-        (click)="onLogout()"
-        class="p-2 rounded-xl bg-slate-800 hover:bg-rose-900/60 text-slate-400 hover:text-rose-300 transition-colors cursor-pointer"
-        title="Sign Out / Switch Account"
-      >
-        <app-icon name="log-out" [size]="16"></app-icon>
-      </button>
+      @if (isGuest()) {
+        <a
+          routerLink="/auth"
+          class="px-3 py-1.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-orange-600/20 transition-all cursor-pointer"
+          title="Sign In or Register"
+        >
+          <app-icon name="log-in" [size]="14"></app-icon>
+          <span>Sign In / Register</span>
+        </a>
+      } @else {
+        <button
+          type="button"
+          (click)="onLogout()"
+          class="p-2 rounded-xl bg-slate-800 hover:bg-rose-900/60 text-slate-400 hover:text-rose-300 transition-colors cursor-pointer"
+          title="Sign Out / Switch Account"
+        >
+          <app-icon name="log-out" [size]="16"></app-icon>
+        </button>
+      }
     </div>
 
     <!-- Guest Conversion Prompt -->
@@ -35,10 +43,10 @@
       <div class="p-3.5 rounded-2xl bg-gradient-to-r from-orange-600/20 to-amber-600/20 border border-orange-500/30 flex items-center justify-between gap-3 text-xs">
         <div>
           <strong class="text-white block font-bold">You're ordering as Guest</strong>
-          <span class="text-[11px] text-slate-300">Create an account to collect points and stamp rewards!</span>
+          <span class="text-[11px] text-slate-300">Create an account to save your order history and details for faster ordering!</span>
         </div>
         <a
-          routerLink="/customer/auth"
+          routerLink="/auth"
           class="px-3 py-1.5 rounded-xl bg-orange-600 text-white font-bold text-xs shrink-0"
         >
           Sign Up
@@ -54,7 +62,18 @@
         <app-icon name="receipt" [size]="16" class="text-orange-500"></app-icon>
         <span>Your Past Hawker Orders</span>
       </h3>
-      <span class="text-xs text-slate-400 font-mono">{{ customerOrders().length }} orders</span>
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-slate-400 font-mono">{{ customerOrders().length }} orders</span>
+        @if (customerOrders().length > 0) {
+          <button
+            type="button"
+            (click)="onClearOrders()"
+            class="text-[11px] text-rose-400 hover:text-rose-300 font-semibold px-2 py-0.5 rounded-lg bg-rose-500/10 border border-rose-500/20 transition-all cursor-pointer"
+          >
+            Clear History
+          </button>
+        }
+      </div>
     </div>
 
     @if (customerOrders().length === 0) {
@@ -97,7 +116,7 @@
 
             <div class="text-right space-y-1.5 shrink-0">
               <div class="font-black font-mono text-sm text-white">
-                \${{ ord.total.toFixed(2) }}
+                ${{ ord.total.toFixed(2) }}
               </div>
               <div class="flex items-center gap-1 justify-end flex-wrap">
                 @if (ord.status !== 'completed' && ord.status !== 'cancelled') {

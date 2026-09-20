@@ -47,7 +47,8 @@ export const routes: Routes = [
       },
       {
         path: 'rewards',
-        loadComponent: () => import('./features/rewards/customer-rewards.component').then(m => m.CustomerRewardsComponent)
+        redirectTo: 'stalls',
+        pathMatch: 'full'
       },
       {
         path: 'profile',
