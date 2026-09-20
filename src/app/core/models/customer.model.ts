@@ -10,6 +10,10 @@ export interface CustomerUser {
   tier: CustomerTier;
   avatarEmoji?: string;
   registeredAt: string;
+  cognitoSub?: string;
+  cognitoUsername?: string;
+  accessToken?: string;
+  idToken?: string;
 }
 
 export type DiscountType = 'fixed' | 'percentage' | 'free_item';

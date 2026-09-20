@@ -64,6 +64,40 @@
 
   </div>
 
+  <!-- Success Alert Banner -->
+  @if (successMessage()) {
+    <div class="p-3.5 rounded-2xl bg-emerald-950/80 border border-emerald-800 text-emerald-200 text-xs flex items-center justify-between gap-2 animate-fade-in">
+      <div class="flex items-center gap-2">
+        <app-icon name="check-circle" [size]="16" class="text-emerald-400 shrink-0"></app-icon>
+        <span>{{ successMessage() }}</span>
+      </div>
+      <button
+        type="button"
+        (click)="successMessage.set(null)"
+        class="text-emerald-400 hover:text-white p-1"
+      >
+        <app-icon name="x" [size]="14"></app-icon>
+      </button>
+    </div>
+  }
+
+  <!-- Error Alert Banner -->
+  @if (errorMessage()) {
+    <div class="p-3.5 rounded-2xl bg-rose-950/80 border border-rose-800 text-rose-200 text-xs flex items-center justify-between gap-2 animate-fade-in">
+      <div class="flex items-center gap-2">
+        <app-icon name="alert-circle" [size]="16" class="text-rose-400 shrink-0"></app-icon>
+        <span>{{ errorMessage() }}</span>
+      </div>
+      <button
+        type="button"
+        (click)="errorMessage.set(null)"
+        class="text-rose-400 hover:text-white p-1"
+      >
+        <app-icon name="x" [size]="14"></app-icon>
+      </button>
+    </div>
+  }
+
   <!-- TAB 1: GUEST MODE -->
   @if (activeTab() === 'guest') {
     <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5 animate-fade-in">
@@ -110,7 +144,7 @@
     <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5 animate-fade-in">
       <div class="space-y-1">
         <h3 class="font-extrabold text-base text-white">Sign In to Diner Portal</h3>
-        <p class="text-xs text-slate-400">Sign in with your mobile or email to track your orders</p>
+        <p class="text-xs text-slate-400">Sign in with your registered mobile number or email</p>
       </div>
 
       <form (ngSubmit)="onFormLogin()" class="space-y-3.5 text-xs">
@@ -126,12 +160,30 @@
           />
         </div>
 
+        <div class="space-y-1">
+          <label class="font-bold text-slate-300">Password</label>
+          <input
+            type="password"
+            [(ngModel)]="loginPassword"
+            name="password"
+            placeholder="Enter password (optional, default provided)"
+            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono"
+          />
+        </div>
+
         <button
           type="submit"
+          [disabled]="isLoading() || !loginIdentifier"
+          [class.opacity-50]="isLoading() || !loginIdentifier"
           class="w-full py-3.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-extrabold text-sm shadow-lg shadow-orange-600/25 flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] transition-all"
         >
-          <span>Sign In</span>
-          <app-icon name="arrow-right" [size]="16"></app-icon>
+          @if (isLoading()) {
+            <span class="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></span>
+            <span>Signing in...</span>
+          } @else {
+            <span>Sign In</span>
+            <app-icon name="arrow-right" [size]="16"></app-icon>
+          }
         </button>
       </form>
     </div>
@@ -143,7 +195,7 @@
       
       <div class="space-y-1">
         <h3 class="font-extrabold text-base text-white">Create Diner Account</h3>
-        <p class="text-xs text-slate-400">Register to easily track past orders and get live order updates</p>
+        <p class="text-xs text-slate-400">Create an account to earn points, redeem rewards, and track orders</p>
       </div>
 
       <form (ngSubmit)="onRegister()" class="space-y-3.5 text-xs">
@@ -182,15 +234,155 @@
           />
         </div>
 
+        <div class="space-y-1">
+          <label class="font-bold text-slate-300">Password (Optional)</label>
+          <input
+            type="password"
+            [(ngModel)]="regPassword"
+            name="password"
+            placeholder="Min 6 characters (default provided)"
+            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono"
+          />
+        </div>
+
         <button
           type="submit"
-          [disabled]="!regName || !regPhone"
-          [class.opacity-50]="!regName || !regPhone"
+          [disabled]="isLoading() || !regName || !regPhone"
+          [class.opacity-50]="isLoading() || !regName || !regPhone"
           class="w-full py-3.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-extrabold text-sm shadow-lg shadow-orange-600/25 flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] transition-all"
         >
-          <app-icon name="user" [size]="16"></app-icon>
-          <span>Create Account</span>
+          @if (isLoading()) {
+            <span class="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></span>
+            <span>Registering...</span>
+          } @else {
+            <app-icon name="user" [size]="16"></app-icon>
+            <span>Register</span>
+          }
         </button>
+      </form>
+    </div>
+  }
+
+  <!-- TAB 4: CONFIRM SIGN UP (Verification Code) -->
+  @if (activeTab() === 'confirm_signup') {
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5 animate-fade-in">
+      <div class="text-center space-y-2">
+        <div class="w-12 h-12 rounded-2xl bg-orange-500/20 text-orange-400 border border-orange-500/30 mx-auto flex items-center justify-center text-xl">
+          ✉️
+        </div>
+        <div>
+          <h3 class="font-extrabold text-base text-white">Enter Confirmation Code</h3>
+          <p class="text-xs text-slate-400 mt-1">
+            A verification code was sent to
+            <strong class="text-orange-400 font-mono">{{ mfaDestination || pendingUsername }}</strong>
+          </p>
+        </div>
+      </div>
+
+      <form (ngSubmit)="onConfirmRegistrationCode()" class="space-y-4 text-xs">
+        <div class="space-y-1">
+          <label class="font-bold text-slate-300 text-center block">6-Digit Verification Code</label>
+          <input
+            type="text"
+            [(ngModel)]="confirmationCode"
+            name="code"
+            placeholder="123456"
+            maxlength="10"
+            required
+            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white text-center font-mono text-xl tracking-[0.3em] placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-orange-500"
+          />
+        </div>
+
+        <button
+          type="submit"
+          [disabled]="isLoading() || !confirmationCode"
+          [class.opacity-50]="isLoading() || !confirmationCode"
+          class="w-full py-3.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-extrabold text-sm shadow-lg shadow-orange-600/25 flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] transition-all"
+        >
+          @if (isLoading()) {
+            <span class="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></span>
+            <span>Verifying Code...</span>
+          } @else {
+            <app-icon name="check" [size]="16"></app-icon>
+            <span>Confirm & Complete Registration</span>
+          }
+        </button>
+
+        <div class="flex items-center justify-between pt-2 border-t border-slate-800 text-xs">
+          <button
+            type="button"
+            (click)="onResendCode()"
+            [disabled]="isLoading()"
+            class="text-orange-400 hover:text-orange-300 font-semibold cursor-pointer"
+          >
+            Resend Code
+          </button>
+          <button
+            type="button"
+            (click)="onCancelCodeEntry()"
+            class="text-slate-400 hover:text-slate-200 cursor-pointer"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  }
+
+  <!-- TAB 5: CONFIRM MFA (Multi-Factor Authentication during Login) -->
+  @if (activeTab() === 'confirm_mfa') {
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5 animate-fade-in">
+      <div class="text-center space-y-2">
+        <div class="w-12 h-12 rounded-2xl bg-blue-500/20 text-blue-400 border border-blue-500/30 mx-auto flex items-center justify-center text-xl">
+          🔐
+        </div>
+        <div>
+          <h3 class="font-extrabold text-base text-white">Multi-Factor Authentication (MFA)</h3>
+          <p class="text-xs text-slate-400 mt-1">
+            Please enter the security verification code sent to
+            <strong class="text-blue-400 font-mono">{{ mfaDestination || pendingUsername }}</strong>
+          </p>
+        </div>
+      </div>
+
+      <form (ngSubmit)="onConfirmMfa()" class="space-y-4 text-xs">
+        <div class="space-y-1">
+          <label class="font-bold text-slate-300 text-center block">Security Code</label>
+          <input
+            type="text"
+            [(ngModel)]="confirmationCode"
+            name="mfaCode"
+            placeholder="123456"
+            maxlength="10"
+            required
+            class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white text-center font-mono text-xl tracking-[0.3em] placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+
+        <button
+          type="submit"
+          [disabled]="isLoading() || !confirmationCode"
+          [class.opacity-50]="isLoading() || !confirmationCode"
+          class="w-full py-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-extrabold text-sm shadow-lg shadow-blue-600/25 flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] transition-all"
+        >
+          @if (isLoading()) {
+            <span class="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></span>
+            <span>Verifying Security Code...</span>
+          } @else {
+            <app-icon name="check" [size]="16"></app-icon>
+            <span>Verify & Sign In</span>
+          }
+        </button>
+
+        <div class="flex items-center justify-between pt-2 border-t border-slate-800 text-xs">
+          <button
+            type="button"
+            (click)="onCancelCodeEntry()"
+            class="text-slate-400 hover:text-slate-200 cursor-pointer"
+          >
+            ← Back to Sign In
+          </button>
+        </div>
       </form>
     </div>
   }

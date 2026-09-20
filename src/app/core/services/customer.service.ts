@@ -1,13 +1,16 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { Router } from '@angular/router';
+import { Observable, of, tap, catchError, map } from 'rxjs';
 import { CustomerUser, CustomerVoucher, CustomerStampCard, CustomerTier } from '../models/customer.model';
 import { Order, OrderStatus } from '../models/order.model';
+import { CognitoService } from './cognito.service';
 
 @Injectable({
   providedIn: 'root'
 })
 export class CustomerService {
   private router = inject(Router);
+  private cognitoService = inject(CognitoService);
 
   readonly currentCustomer = signal<CustomerUser | null>(null);
   readonly vouchers = signal<CustomerVoucher[]>([]);
@@ -49,27 +52,115 @@ export class CustomerService {
     return guestUser;
   }
 
-  login(identifier: string): { success: boolean; error?: string } {
+  login(identifier: string, password?: string): Observable<{
+    success: boolean;
+    requiresMfa?: boolean;
+    isSignedIn?: boolean;
+    nextStep?: any;
+    codeDeliveryDetails?: any;
+    user?: CustomerUser;
+    error?: string;
+  }> {
     const term = identifier.trim();
-    if (!term) return { success: false, error: 'Identifier required' };
+    if (!term) return of({ success: false, error: 'Identifier required' });
 
-    const newUser: CustomerUser = {
-      id: 'cust-' + Date.now(),
-      name: term.includes('@') ? term.split('@')[0] : 'Diner ' + term.slice(-4),
-      email: term.includes('@') ? term : undefined,
-      phone: !term.includes('@') ? term : undefined,
-      isGuest: false,
-      loyaltyPoints: 0,
-      tier: 'Bronze Kaki',
-      avatarEmoji: '🥢',
-      registeredAt: new Date().toISOString()
-    };
-    this.currentCustomer.set(newUser);
-    this.router.navigate(['/stalls']);
-    return { success: true };
+    return this.cognitoService.signIn(term, password).pipe(
+      map(res => {
+        if (!res.success && res.error) {
+          return { success: false, error: res.error };
+        }
+
+        const user: CustomerUser = {
+          id: res.user?.userId || 'cust-' + Date.now(),
+          name: term.includes('@') ? term.split('@')[0] : 'Diner ' + term.slice(-4),
+          email: term.includes('@') ? term : undefined,
+          phone: !term.includes('@') ? term : undefined,
+          isGuest: false,
+          loyaltyPoints: 0,
+          tier: 'Bronze Kaki',
+          avatarEmoji: '🥢',
+          registeredAt: new Date().toISOString(),
+          accessToken: res.tokens?.accessToken,
+          idToken: res.tokens?.idToken
+        };
+
+        if (res.isSignedIn) {
+          this.currentCustomer.set(user);
+          this.router.navigate(['/stalls']);
+          return {
+            success: true,
+            requiresMfa: false,
+            isSignedIn: true,
+            user
+          };
+        }
+
+        // MFA or additional challenge required
+        return {
+          success: true,
+          requiresMfa: true,
+          isSignedIn: false,
+          nextStep: res.nextStep,
+          codeDeliveryDetails: res.codeDeliveryDetails,
+          user
+        };
+      }),
+      catchError(err => {
+        const errorMsg = err?.message || 'Login failed';
+        return of({ success: false, error: errorMsg });
+      })
+    );
   }
 
-  register(data: { name: string; email?: string; phone: string }): CustomerUser {
+  confirmMfa(code: string, userDetails?: { identifier?: string; name?: string }): Observable<{
+    success: boolean;
+    isSignedIn?: boolean;
+    user?: CustomerUser;
+    error?: string;
+  }> {
+    return this.cognitoService.confirmSignIn(code).pipe(
+      map(res => {
+        if (!res.success && res.error) {
+          return { success: false, error: res.error };
+        }
+
+        if (res.isSignedIn) {
+          const term = userDetails?.identifier || 'User';
+          const user: CustomerUser = {
+            id: res.user?.userId || 'cust-' + Date.now(),
+            name: userDetails?.name || (term.includes('@') ? term.split('@')[0] : 'Diner ' + term.slice(-4)),
+            email: term.includes('@') ? term : undefined,
+            phone: !term.includes('@') ? term : undefined,
+            isGuest: false,
+            loyaltyPoints: 0,
+            tier: 'Bronze Kaki',
+            avatarEmoji: '🥢',
+            registeredAt: new Date().toISOString(),
+            accessToken: res.tokens?.accessToken,
+            idToken: res.tokens?.idToken
+          };
+          this.currentCustomer.set(user);
+          this.router.navigate(['/stalls']);
+          return { success: true, isSignedIn: true, user };
+        }
+
+        return { success: false, error: 'MFA Verification was not completed' };
+      }),
+      catchError(err => of({ success: false, error: err?.message || 'MFA confirmation failed' }))
+    );
+  }
+
+  register(data: { name: string; email?: string; phone: string; password?: string }): Observable<{
+    success: boolean;
+    requiresConfirmation?: boolean;
+    isSignUpComplete?: boolean;
+    username?: string;
+    user?: CustomerUser;
+    codeDeliveryDetails?: any;
+    error?: string;
+  }> {
+    const username = data.phone.trim() || data.email?.trim() || data.name.trim().toLowerCase().replace(/\s+/g, '_');
+
     const newUser: CustomerUser = {
       id: 'cust-' + Date.now(),
       name: data.name.trim(),
@@ -79,15 +170,90 @@ export class CustomerService {
       loyaltyPoints: 0,
       tier: 'Bronze Kaki',
       avatarEmoji: '🥢',
-      registeredAt: new Date().toISOString()
+      registeredAt: new Date().toISOString(),
+      cognitoUsername: username
     };
 
-    this.currentCustomer.set(newUser);
-    this.router.navigate(['/stalls']);
-    return newUser;
+    return this.cognitoService.signUp({
+      username,
+      password: data.password,
+      name: data.name.trim(),
+      phone: data.phone.trim(),
+      email: data.email?.trim()
+    }).pipe(
+      map(res => {
+        if (!res.success && res.error) {
+          return { success: false, error: res.error };
+        }
+
+        if (res.userSub) {
+          newUser.id = res.userSub;
+          newUser.cognitoSub = res.userSub;
+        }
+
+        if (res.isSignUpComplete) {
+          this.currentCustomer.set(newUser);
+          this.router.navigate(['/stalls']);
+          return {
+            success: true,
+            requiresConfirmation: false,
+            isSignUpComplete: true,
+            user: newUser
+          };
+        }
+
+        // Confirmation code is required by AWS Cognito
+        return {
+          success: true,
+          requiresConfirmation: true,
+          isSignUpComplete: false,
+          username,
+          user: newUser,
+          codeDeliveryDetails: res.codeDeliveryDetails
+        };
+      }),
+      catchError(err => of({ success: false, error: err?.message || 'Registration failed' }))
+    );
+  }
+
+  confirmRegistrationCode(username: string, code: string, userDetails?: { name?: string; phone?: string; email?: string }): Observable<{
+    success: boolean;
+    isSignUpComplete?: boolean;
+    user?: CustomerUser;
+    error?: string;
+  }> {
+    return this.cognitoService.confirmSignUp(username, code).pipe(
+      map(res => {
+        if (!res.success && res.error) {
+          return { success: false, error: res.error };
+        }
+
+        const confirmedUser: CustomerUser = {
+          id: 'cust-' + Date.now(),
+          name: userDetails?.name || 'Diner',
+          email: userDetails?.email,
+          phone: userDetails?.phone || username,
+          isGuest: false,
+          loyaltyPoints: 0,
+          tier: 'Bronze Kaki',
+          avatarEmoji: '🥢',
+          registeredAt: new Date().toISOString(),
+          cognitoUsername: username
+        };
+        this.currentCustomer.set(confirmedUser);
+        this.router.navigate(['/stalls']);
+        return { success: true, isSignUpComplete: true, user: confirmedUser };
+      }),
+      catchError(err => of({ success: false, error: err?.message || 'Confirmation code invalid' }))
+    );
+  }
+
+  resendConfirmationCode(username: string): Observable<{ success: boolean; destination?: string; error?: string }> {
+    return this.cognitoService.resendSignUpCode(username);
   }
 
   logout(): void {
+    this.cognitoService.signOut().subscribe();
     this.currentCustomer.set(null);
     this.appliedVoucher.set(null);
     this.customerOrders.set([]);
