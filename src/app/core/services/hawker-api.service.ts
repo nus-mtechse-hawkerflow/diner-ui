@@ -4,6 +4,9 @@ import { Observable, map } from 'rxjs';
 import {
   BackendCreateOrderPayload,
   BackendCreateOrderResponse,
+  BackendCustomerRegisterPayload,
+  BackendCheckAccountPayload,
+  BackendCheckAccountResponse,
   BackendStallItem,
   BackendStallsResponse
 } from '../models/hawker-api.model';
@@ -13,12 +16,30 @@ import { StallSettings } from '../models/settings.model';
 
 export const HAWKER_STALLS_API_URL = 'http://localhost:8080/hawkerflow/v1/hawker/stalls';
 export const ORDER_SUBMIT_API_URL = 'http://localhost:8082/hawkerflow/v1/order/orders';
+export const CUSTOMER_REGISTER_API_URL = 'http://localhost:8081/hawkerflow/v1/customer/register';
+export const CUSTOMER_CHECK_ACCOUNT_API_URL = 'http://localhost:8081/hawkerflow/v1/customer/check_account_exist';
 
 @Injectable({
   providedIn: 'root'
 })
 export class HawkerApiService {
   private http = inject(HttpClient);
+
+  /**
+   * Checks if an account already exists with the given phone number or email.
+   * POST http://localhost:8081/hawkerflow/v1/customer/check_account_exist
+   */
+  checkAccountExists(payload: BackendCheckAccountPayload): Observable<BackendCheckAccountResponse | any> {
+    return this.http.post<BackendCheckAccountResponse | any>(CUSTOMER_CHECK_ACCOUNT_API_URL, payload);
+  }
+
+  /**
+   * Register customer in backend Customer Service.
+   * POST http://localhost:8081/hawkerflow/v1/customer/register
+   */
+  registerCustomer(payload: BackendCustomerRegisterPayload): Observable<any> {
+    return this.http.post<any>(CUSTOMER_REGISTER_API_URL, payload);
+  }
 
   /**
    * Fetch all hawker stalls and their menu items from the backend.

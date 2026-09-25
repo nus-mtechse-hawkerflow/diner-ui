@@ -7,7 +7,13 @@ import { routes } from './app.routes';
 import { CustomerService } from './core/services/customer.service';
 import { AuthService } from './core/services/auth.service';
 import { CognitoService, LOCALSTACK_COGNITO_ENDPOINT } from './core/services/cognito.service';
-import { HawkerApiService, HAWKER_STALLS_API_URL, ORDER_SUBMIT_API_URL } from './core/services/hawker-api.service';
+import {
+  HawkerApiService,
+  HAWKER_STALLS_API_URL,
+  ORDER_SUBMIT_API_URL,
+  CUSTOMER_REGISTER_API_URL,
+  CUSTOMER_CHECK_ACCOUNT_API_URL
+} from './core/services/hawker-api.service';
 import {
   OrderNotificationService,
   SNS_ORDER_STATUS_TOPIC_ARN,
@@ -82,22 +88,123 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     expect(customerService.currentCustomer()?.name).toContain('4567');
   });
 
-  it('should register a new customer', async () => {
+  it('should check if account already exists at POST http://localhost:8081/hawkerflow/v1/customer/check_account_exist with string phone_number and account_exist boolean response', () => {
+    const payload = {
+      phone_number: '90123456',
+      email: 'marcus@test.com'
+    };
+
+    let checkResponse: any = null;
+    hawkerApiService.checkAccountExists(payload).subscribe(res => {
+      checkResponse = res;
+    });
+
+    const req = httpMock.expectOne(CUSTOMER_CHECK_ACCOUNT_API_URL);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual(payload);
+    expect(typeof req.request.body.phone_number).toBe('string');
+    req.flush({ account_exist: false });
+
+    expect(checkResponse).toEqual({ account_exist: false });
+    expect(checkResponse.account_exist).toBe(false);
+  });
+
+  it('should prompt customer that account already exists when account_exist: true in backend and stop registration', async () => {
     let result: any = null;
-    await new Promise<void>(resolve => {
+    const regPromise = new Promise<void>(resolve => {
       customerService.register({
-        name: 'Sarah Chen',
-        phone: '+65 9876 5432',
-        email: 'sarah.chen@gmail.com'
+        firstName: 'Existing',
+        lastName: 'User',
+        phone: '90123456',
+        email: 'existing@test.com',
+        password: 'Password123!'
       }).subscribe(res => {
         result = res;
         resolve();
       });
     });
 
+    // Check account request returns account_exist: true
+    const checkReq = httpMock.expectOne(CUSTOMER_CHECK_ACCOUNT_API_URL);
+    expect(checkReq.request.method).toBe('POST');
+    expect(checkReq.request.body).toEqual({
+      phone_number: '90123456',
+      email: 'existing@test.com'
+    });
+    checkReq.flush({ account_exist: true });
+
+    await regPromise;
+
+    expect(result).toBeDefined();
+    expect(result.success).toBe(false);
+    expect(result.accountExists).toBe(true);
+    expect(result.error).toContain('Account already exists');
+    expect(customerService.currentCustomer()).toBeNull();
+  });
+
+  it('should register a new customer with mandatory password and string phone number when account does not exist (account_exist: false)', async () => {
+    let result: any = null;
+    const regPromise = new Promise<void>(resolve => {
+      customerService.register({
+        firstName: 'Sarah',
+        lastName: 'Chen',
+        phone: '+65 9876 5432',
+        email: 'sarah.chen@gmail.com',
+        password: 'Password123!'
+      }).subscribe(res => {
+        result = res;
+        resolve();
+      });
+    });
+
+    // 1. Account existence check returns account_exist: false
+    const checkReq = httpMock.expectOne(CUSTOMER_CHECK_ACCOUNT_API_URL);
+    expect(checkReq.request.method).toBe('POST');
+    expect(checkReq.request.body.phone_number).toBe('+65 9876 5432');
+    checkReq.flush({ account_exist: false });
+
+    // Wait for Cognito async signup step
+    await new Promise(r => setTimeout(r, 800));
+
+    // 2. Customer service registration call
+    const regReq = httpMock.expectOne(CUSTOMER_REGISTER_API_URL);
+    expect(regReq.request.method).toBe('POST');
+    expect(regReq.request.body).toEqual({
+      first_name: 'Sarah',
+      last_name: 'Chen',
+      email: 'sarah.chen@gmail.com',
+      phone_number: '+65 9876 5432'
+    });
+    expect(typeof regReq.request.body.phone_number).toBe('string');
+    regReq.flush({ message: 'Customer registered' });
+
+    await regPromise;
+
     expect(customerService.currentCustomer()?.name).toBe('Sarah Chen');
     expect(customerService.currentCustomer()?.phone).toBe('+65 9876 5432');
     expect(customerService.currentCustomer()?.email).toBe('sarah.chen@gmail.com');
+  });
+
+  it('should send customer registration details with string phone_number to POST http://localhost:8081/hawkerflow/v1/customer/register', () => {
+    const payload = {
+      first_name: 'Marcus',
+      last_name: 'Tan',
+      email: 'marcus@example.com',
+      phone_number: '91234567'
+    };
+
+    let response: any = null;
+    hawkerApiService.registerCustomer(payload).subscribe(res => {
+      response = res;
+    });
+
+    const req = httpMock.expectOne(CUSTOMER_REGISTER_API_URL);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual(payload);
+    expect(typeof req.request.body.phone_number).toBe('string');
+    req.flush({ message: 'Customer registered successfully' });
+
+    expect(response).toEqual({ message: 'Customer registered successfully' });
   });
 
   it('should record customer order in order history', () => {
@@ -583,4 +690,101 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     });
     expect(resendResult).toBeDefined();
   });
+
+  it('should authenticate user if account already exists in CustomerAuthComponent on register', async () => {
+    const { CustomerAuthComponent } = await import('./features/auth/customer-auth.component');
+    const fixture = TestBed.createComponent(CustomerAuthComponent);
+    const component = fixture.componentInstance;
+    component.activeTab.set('register');
+    fixture.detectChanges();
+
+    component.regFirstName = 'Jane';
+    component.regLastName = 'Doe';
+    component.regPhone = '90123456';
+    component.regEmail = 'jane@example.com';
+    component.regPassword = 'Password123!';
+
+    component.onRegister();
+
+    // Account check returns account_exist: true -> displays prompt and stops registration
+    const checkReq = httpMock.expectOne(CUSTOMER_CHECK_ACCOUNT_API_URL);
+    checkReq.flush({ account_exist: true });
+
+    fixture.detectChanges();
+
+    expect(component.accountExistsError()).toBe(true);
+    expect(component.errorMessage()).toContain('Account already exists');
+    expect(customerService.currentCustomer()).toBeNull();
+
+    let compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('Account Already Exists');
+    expect(compiled.textContent).toContain('Account already exists, please log in instead');
+    expect(compiled.textContent).toContain('Log In to Existing Account');
+
+    component.switchToSignIn();
+    fixture.detectChanges();
+    expect(component.activeTab()).toBe('login');
+    expect(component.accountExistsError()).toBe(false);
+    expect(component.loginIdentifier).toBe('90123456');
+  });
+
+  it('should prompt customer if checkAccountExists returns account_exist: true in response body', async () => {
+    let result: any = null;
+    const regPromise = new Promise<void>(resolve => {
+      customerService.register({
+        firstName: 'Marcus',
+        lastName: 'Tan',
+        phone: '91112222',
+        email: 'marcus@test.com',
+        password: 'Password123!'
+      }).subscribe(res => {
+        result = res;
+        resolve();
+      });
+    });
+
+    const checkReq = httpMock.expectOne(CUSTOMER_CHECK_ACCOUNT_API_URL);
+    checkReq.flush({ account_exist: true });
+
+    await regPromise;
+
+    expect(result).toBeDefined();
+    expect(result.success).toBe(false);
+    expect(result.accountExists).toBe(true);
+    expect(result.error).toBe('Account already exists. Please log in instead.');
+    expect(customerService.currentCustomer()).toBeNull();
+  });
+
+  it('should proceed to signup if checkAccountExists returns account_exist: false in response body', async () => {
+    let result: any = null;
+    const regPromise = new Promise<void>(resolve => {
+      customerService.register({
+        firstName: 'New',
+        lastName: 'User',
+        phone: '93334444',
+        email: 'newuser@test.com',
+        password: 'Password123!'
+      }).subscribe(res => {
+        result = res;
+        resolve();
+      });
+    });
+
+    const checkReq = httpMock.expectOne(CUSTOMER_CHECK_ACCOUNT_API_URL);
+    checkReq.flush({ account_exist: false });
+
+    // Wait for async signup
+    await new Promise(r => setTimeout(r, 800));
+
+    const regReq = httpMock.expectOne(CUSTOMER_REGISTER_API_URL);
+    regReq.flush({ message: 'Registered' });
+
+    await regPromise;
+
+    expect(result).toBeDefined();
+    expect(result.success).toBe(true);
+    expect(result.isSignUpComplete).toBe(true);
+    expect(customerService.currentCustomer()?.phone).toBe('93334444');
+  });
 });
+

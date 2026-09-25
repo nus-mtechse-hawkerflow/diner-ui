@@ -31,6 +31,7 @@ export interface CognitoAuthTokens {
 export interface CognitoSignUpResult {
   success: boolean;
   isSignUpComplete: boolean;
+  isUsernameExists?: boolean;
   userSub?: string;
   nextStep?: any;
   codeDeliveryDetails?: any;
@@ -128,6 +129,18 @@ export class CognitoService {
     }).catch((err: any) => {
       const errorMsg = err?.message || 'Amplify SignUp failed';
       this.lastError.set(errorMsg);
+      const isUserExists = err?.name === 'UsernameExistsException' ||
+        errorMsg.toLowerCase().includes('already exists') ||
+        errorMsg.toLowerCase().includes('usernameexistsexception') ||
+        errorMsg.toLowerCase().includes('user already exists');
+      if (isUserExists) {
+        return {
+          success: false,
+          isSignUpComplete: false,
+          isUsernameExists: true,
+          error: errorMsg
+        };
+      }
       return {
         success: true,
         isSignUpComplete: true,
@@ -154,6 +167,17 @@ export class CognitoService {
     })).catch((err: any) => {
       const errorMsg = err?.message || 'Confirmation code verification failed';
       this.lastError.set(errorMsg);
+      const isCodeMismatch = err?.name === 'CodeMismatchException' ||
+        err?.name === 'ExpiredCodeException' ||
+        errorMsg.toLowerCase().includes('invalid code') ||
+        errorMsg.toLowerCase().includes('expired');
+      if (isCodeMismatch) {
+        return {
+          success: false,
+          isSignUpComplete: false,
+          error: errorMsg
+        };
+      }
       return {
         success: true,
         isSignUpComplete: true,
@@ -239,6 +263,18 @@ export class CognitoService {
     }).catch((err: any) => {
       const errorMsg = err?.message || 'Amplify SignIn failed';
       this.lastError.set(errorMsg);
+      const isAuthFail = err?.name === 'NotAuthorizedException' ||
+        err?.name === 'UserNotFoundException' ||
+        errorMsg.toLowerCase().includes('incorrect username or password') ||
+        errorMsg.toLowerCase().includes('user does not exist');
+      if (isAuthFail) {
+        return {
+          success: false,
+          isSignedIn: false,
+          user: { username },
+          error: errorMsg
+        };
+      }
       return {
         success: true,
         isSignedIn: true,
@@ -295,6 +331,16 @@ export class CognitoService {
     }).catch((err: any) => {
       const errorMsg = err?.message || 'MFA code verification failed';
       this.lastError.set(errorMsg);
+      const isCodeMismatch = err?.name === 'CodeMismatchException' ||
+        errorMsg.toLowerCase().includes('invalid code') ||
+        errorMsg.toLowerCase().includes('expired');
+      if (isCodeMismatch) {
+        return {
+          success: false,
+          isSignedIn: false,
+          error: errorMsg
+        };
+      }
       return {
         success: true,
         isSignedIn: true,

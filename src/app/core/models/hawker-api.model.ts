@@ -47,3 +47,23 @@ export interface BackendCreateOrderResponse {
   order_status: string;
   order_created_at: string;
 }
+
+export interface BackendCustomerRegisterPayload {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone_number: string;
+}
+
+export interface BackendCheckAccountPayload {
+  phone_number: string;
+  email: string;
+}
+
+export interface BackendCheckAccountResponse {
+  account_exist: boolean;
+  message?: string;
+  [key: string]: any;
+}
+
+

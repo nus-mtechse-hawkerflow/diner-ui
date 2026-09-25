@@ -1,9 +1,11 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { Observable, of, tap, catchError, map } from 'rxjs';
+import { Observable, of, tap, catchError, map, switchMap } from 'rxjs';
 import { CustomerUser, CustomerVoucher, CustomerStampCard, CustomerTier } from '../models/customer.model';
 import { Order, OrderStatus } from '../models/order.model';
 import { CognitoService } from './cognito.service';
+import { HawkerApiService } from './hawker-api.service';
+import { BackendCustomerRegisterPayload, BackendCheckAccountPayload } from '../models/hawker-api.model';
 
 @Injectable({
   providedIn: 'root'
@@ -11,6 +13,7 @@ import { CognitoService } from './cognito.service';
 export class CustomerService {
   private router = inject(Router);
   private cognitoService = inject(CognitoService);
+  private hawkerApiService = inject(HawkerApiService);
 
   readonly currentCustomer = signal<CustomerUser | null>(null);
   readonly vouchers = signal<CustomerVoucher[]>([]);
@@ -150,22 +153,49 @@ export class CustomerService {
     );
   }
 
-  register(data: { name: string; email?: string; phone: string; password?: string }): Observable<{
+  register(data: {
+    name?: string;
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    phone: string;
+    password?: string;
+  }): Observable<{
     success: boolean;
+    accountExists?: boolean;
+    isSignedIn?: boolean;
+    requiresMfa?: boolean;
     requiresConfirmation?: boolean;
     isSignUpComplete?: boolean;
     username?: string;
     user?: CustomerUser;
+    nextStep?: any;
     codeDeliveryDetails?: any;
     error?: string;
   }> {
-    const username = data.phone.trim() || data.email?.trim() || data.name.trim().toLowerCase().replace(/\s+/g, '_');
+    const rawPhone = data.phone.trim();
+    const username = rawPhone;
+    
+    // Parse first name & last name
+    let firstName = data.firstName?.trim() || '';
+    let lastName = data.lastName?.trim() || '';
+    if (!firstName && !lastName && data.name) {
+      const parts = data.name.trim().split(/\s+/);
+      firstName = parts[0] || 'Diner';
+      lastName = parts.slice(1).join(' ') || 'User';
+    } else if (!firstName) {
+      firstName = 'Diner';
+    } else if (!lastName) {
+      lastName = 'User';
+    }
+    const fullName = `${firstName} ${lastName}`.trim();
+    const email = data.email?.trim() || `${rawPhone.replace(/\D/g, '')}@example.com`;
 
     const newUser: CustomerUser = {
       id: 'cust-' + Date.now(),
-      name: data.name.trim(),
+      name: fullName,
       email: data.email?.trim() || undefined,
-      phone: data.phone.trim(),
+      phone: rawPhone,
       isGuest: false,
       loyaltyPoints: 0,
       tier: 'Bronze Kaki',
@@ -174,49 +204,132 @@ export class CustomerService {
       cognitoUsername: username
     };
 
-    return this.cognitoService.signUp({
-      username,
-      password: data.password,
-      name: data.name.trim(),
-      phone: data.phone.trim(),
-      email: data.email?.trim()
-    }).pipe(
-      map(res => {
-        if (!res.success && res.error) {
-          return { success: false, error: res.error };
-        }
+    const checkPayload: BackendCheckAccountPayload = {
+      phone_number: rawPhone,
+      email
+    };
 
-        if (res.userSub) {
-          newUser.id = res.userSub;
-          newUser.cognitoSub = res.userSub;
+    // 1. Check if account already exists before AWS Cognito signup
+    return this.hawkerApiService.checkAccountExists(checkPayload).pipe(
+      catchError((err) => {
+        if (err?.error && typeof err.error.account_exist === 'boolean') {
+          return of({ account_exist: err.error.account_exist });
         }
-
-        if (res.isSignUpComplete) {
-          this.currentCustomer.set(newUser);
-          this.router.navigate(['/stalls']);
-          return {
-            success: true,
-            requiresConfirmation: false,
-            isSignUpComplete: true,
-            user: newUser
-          };
-        }
-
-        // Confirmation code is required by AWS Cognito
-        return {
-          success: true,
-          requiresConfirmation: true,
-          isSignUpComplete: false,
-          username,
-          user: newUser,
-          codeDeliveryDetails: res.codeDeliveryDetails
-        };
+        return of({ account_exist: false });
       }),
-      catchError(err => of({ success: false, error: err?.message || 'Registration failed' }))
+      switchMap(checkRes => {
+        const isExisting = this.isAccountExisting(checkRes);
+
+        // 2. If account exists, prompt customer that account already exists and stop registration
+        if (isExisting) {
+          return of({
+            success: false,
+            accountExists: true,
+            error: 'Account already exists. Please log in instead.'
+          });
+        }
+
+        // 3. If account does not exist, proceed with AWS Cognito signUp
+        return this.cognitoService.signUp({
+          username,
+          password: data.password,
+          name: fullName,
+          phone: rawPhone,
+          email: data.email?.trim()
+        }).pipe(
+          switchMap(res => {
+            const errLower = (res.error || '').toLowerCase();
+            const isUserExists = res.isUsernameExists || errLower.includes('already exists') || errLower.includes('usernameexistsexception');
+
+            if (isUserExists) {
+              return of({
+                success: false,
+                accountExists: true,
+                error: 'Account already exists. Please log in instead.'
+              });
+            }
+
+            if (!res.success && res.error) {
+              return of({ success: false, error: res.error });
+            }
+
+            if (res.userSub) {
+              newUser.id = res.userSub;
+              newUser.cognitoSub = res.userSub;
+            }
+
+            if (res.isSignUpComplete) {
+              // Forward customer details to Backend Customer Service (localhost:8081) only when registration completes
+              const backendPayload: BackendCustomerRegisterPayload = {
+                first_name: firstName,
+                last_name: lastName,
+                email,
+                phone_number: rawPhone
+              };
+              this.hawkerApiService.registerCustomer(backendPayload).pipe(
+                catchError(() => of(null))
+              ).subscribe();
+
+              this.currentCustomer.set(newUser);
+              this.router.navigate(['/stalls']);
+              return of({
+                success: true,
+                requiresConfirmation: false,
+                isSignUpComplete: true,
+                user: newUser
+              });
+            }
+
+            // Confirmation code is required by AWS Cognito -> Do NOT call registerCustomer yet, wait for confirmRegistrationCode
+            return of({
+              success: true,
+              requiresConfirmation: true,
+              isSignUpComplete: false,
+              username,
+              user: newUser,
+              codeDeliveryDetails: res.codeDeliveryDetails
+            });
+          }),
+          catchError(err => of({ success: false, error: err?.message || 'Registration failed' }))
+        );
+      })
     );
   }
 
-  confirmRegistrationCode(username: string, code: string, userDetails?: { name?: string; phone?: string; email?: string }): Observable<{
+  private isAccountExisting(res: any): boolean {
+    if (res === null || res === undefined) return false;
+    if (typeof res === 'boolean') return res;
+    if (typeof res === 'object') {
+      if (typeof res.account_exist === 'boolean') {
+        return res.account_exist;
+      }
+      if (res.data && typeof res.data.account_exist === 'boolean') {
+        return res.data.account_exist;
+      }
+      if (typeof res.account_exists === 'boolean') {
+        return res.account_exists;
+      }
+      if (typeof res.exists === 'boolean') {
+        return res.exists;
+      }
+      if (typeof res.is_account_exist === 'boolean') {
+        return res.is_account_exist;
+      }
+      if (typeof res.is_exist === 'boolean') {
+        return res.is_exist;
+      }
+      if (res.account_exist !== undefined) return Boolean(res.account_exist);
+      if (res.account_exists !== undefined) return Boolean(res.account_exists);
+      if (res.exists !== undefined) return Boolean(res.exists);
+    }
+    return false;
+  }
+
+  confirmRegistrationCode(
+    username: string,
+    code: string,
+    userDetails?: { name?: string; firstName?: string; lastName?: string; phone?: string; email?: string }
+  ): Observable<{
     success: boolean;
     isSignUpComplete?: boolean;
     user?: CustomerUser;
@@ -228,11 +341,37 @@ export class CustomerService {
           return { success: false, error: res.error };
         }
 
+        let firstName = userDetails?.firstName?.trim() || '';
+        let lastName = userDetails?.lastName?.trim() || '';
+        if (!firstName && !lastName && userDetails?.name) {
+          const parts = userDetails.name.trim().split(/\s+/);
+          firstName = parts[0] || 'Diner';
+          lastName = parts.slice(1).join(' ') || 'User';
+        } else if (!firstName) {
+          firstName = 'Diner';
+        } else if (!lastName) {
+          lastName = 'User';
+        }
+        const fullName = `${firstName} ${lastName}`.trim();
+        const rawPhone = userDetails?.phone || username;
+        const email = userDetails?.email?.trim() || `${rawPhone.replace(/\D/g, '')}@example.com`;
+
+        // Forward to backend customer service if not sent already with string phone_number
+        const backendPayload: BackendCustomerRegisterPayload = {
+          first_name: firstName,
+          last_name: lastName,
+          email,
+          phone_number: rawPhone
+        };
+        this.hawkerApiService.registerCustomer(backendPayload).pipe(
+          catchError(() => of(null))
+        ).subscribe();
+
         const confirmedUser: CustomerUser = {
           id: 'cust-' + Date.now(),
-          name: userDetails?.name || 'Diner',
+          name: fullName,
           email: userDetails?.email,
-          phone: userDetails?.phone || username,
+          phone: rawPhone,
           isGuest: false,
           loyaltyPoints: 0,
           tier: 'Bronze Kaki',

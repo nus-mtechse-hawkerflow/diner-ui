@@ -17,6 +17,7 @@ export class CustomerAuthComponent {
   isLoading = signal<boolean>(false);
   errorMessage = signal<string | null>(null);
   successMessage = signal<string | null>(null);
+  accountExistsError = signal<boolean>(false);
 
   // Guest input
   guestName = '';
@@ -27,7 +28,8 @@ export class CustomerAuthComponent {
   loginPassword = '';
 
   // Register inputs
-  regName = '';
+  regFirstName = '';
+  regLastName = '';
   regPhone = '';
   regEmail = '';
   regPassword = '';
@@ -35,11 +37,20 @@ export class CustomerAuthComponent {
   // Confirmation & MFA state
   confirmationCode = '';
   pendingUsername = '';
+  pendingFirstName = '';
+  pendingLastName = '';
   pendingName = '';
   pendingPhone = '';
   pendingEmail = '';
   mfaDestination = '';
   mfaDeliveryMedium = 'SMS';
+
+  switchToSignIn(): void {
+    this.loginIdentifier = this.regPhone || this.regEmail;
+    this.accountExistsError.set(false);
+    this.errorMessage.set(null);
+    this.activeTab.set('login');
+  }
 
   onGuestOrder(): void {
     this.customerService.continueAsGuest(this.guestName, this.guestPhone);
@@ -75,17 +86,25 @@ export class CustomerAuthComponent {
   }
 
   onRegister(): void {
-    if (!this.regName || !this.regPhone) return;
+    if (!this.regPhone || !this.regPassword || !this.regFirstName || !this.regLastName || !this.regEmail) {
+      this.errorMessage.set('Please fill in all required fields (First Name, Last Name, Phone, Email, Password).');
+      return;
+    }
     this.isLoading.set(true);
     this.errorMessage.set(null);
     this.successMessage.set(null);
+    this.accountExistsError.set(false);
 
-    this.pendingName = this.regName;
+    this.pendingFirstName = this.regFirstName;
+    this.pendingLastName = this.regLastName;
+    this.pendingName = `${this.regFirstName} ${this.regLastName}`.trim();
     this.pendingPhone = this.regPhone;
     this.pendingEmail = this.regEmail;
 
     this.customerService.register({
-      name: this.regName,
+      firstName: this.regFirstName,
+      lastName: this.regLastName,
+      name: this.pendingName,
       phone: this.regPhone,
       email: this.regEmail,
       password: this.regPassword
@@ -93,7 +112,19 @@ export class CustomerAuthComponent {
       next: (res) => {
         this.isLoading.set(false);
         if (!res.success && res.error) {
+          if ((res as any).accountExists || res.error.toLowerCase().includes('already exist')) {
+            this.accountExistsError.set(true);
+          }
           this.errorMessage.set(res.error);
+          return;
+        }
+
+        if (res.requiresMfa) {
+          this.pendingUsername = this.regPhone;
+          this.confirmationCode = '';
+          this.mfaDestination = res.codeDeliveryDetails?.destination || this.regPhone;
+          this.mfaDeliveryMedium = res.codeDeliveryDetails?.deliveryMedium || 'SMS';
+          this.activeTab.set('confirm_mfa');
           return;
         }
 
@@ -103,11 +134,16 @@ export class CustomerAuthComponent {
           this.mfaDestination = res.codeDeliveryDetails?.destination || this.regPhone || this.regEmail;
           this.mfaDeliveryMedium = res.codeDeliveryDetails?.deliveryMedium || 'SMS';
           this.activeTab.set('confirm_signup');
+          return;
         }
       },
       error: (err) => {
         this.isLoading.set(false);
-        this.errorMessage.set(err?.message || 'Registration failed');
+        const errStr = err?.message || 'Registration failed';
+        if (errStr.toLowerCase().includes('already exist')) {
+          this.accountExistsError.set(true);
+        }
+        this.errorMessage.set(errStr);
       }
     });
   }
@@ -121,6 +157,8 @@ export class CustomerAuthComponent {
       this.pendingUsername,
       this.confirmationCode,
       {
+        firstName: this.pendingFirstName,
+        lastName: this.pendingLastName,
         name: this.pendingName,
         phone: this.pendingPhone,
         email: this.pendingEmail
