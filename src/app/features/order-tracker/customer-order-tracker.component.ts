@@ -59,17 +59,24 @@ export class CustomerOrderTrackerComponent implements OnInit, OnDestroy {
     // If order list changes and no order is currently selected, pick first active
     effect(() => {
       const current = this.order();
+      const actives = this.activeOrders();
       if (!current) {
-        const actives = this.activeOrders();
         if (actives.length > 0) {
           this.selectOrderToTrack(actives[0]);
         }
-      } else if (current.status === 'completed' || current.status === 'cancelled') {
-        const remainingActives = this.activeOrders().filter(o => o.id !== current.id);
-        if (remainingActives.length > 0) {
-          this.selectOrderToTrack(remainingActives[0]);
-        } else {
-          this.clearTracker();
+      } else {
+        const matched = this.allCustomerOrders().find(o => o.id === current.id || o.id === `ord-${current.id}` || (current.dailySequence && o.dailySequence === current.dailySequence));
+        const effectiveStatus = matched?.status ?? current.status;
+        if (effectiveStatus === 'completed' || effectiveStatus === 'cancelled') {
+          const remainingActives = actives.filter(o => o.id !== current.id);
+          if (remainingActives.length > 0) {
+            this.selectOrderToTrack(remainingActives[0]);
+          } else {
+            this.clearTracker();
+          }
+        } else if (matched && matched.status !== current.status) {
+          this.order.set(matched);
+          this.applyOrderStatus(matched.status);
         }
       }
     });
@@ -297,23 +304,6 @@ export class CustomerOrderTrackerComponent implements OnInit, OnDestroy {
         this.lookupNotFound.set(true);
       }
     });
-  }
-
-  markOrderCompleted(): void {
-    const current = this.order();
-    if (!current) return;
-
-    this.customerService.updateOrderStatus(current.id, 'completed');
-    this.orderService.updateOrderStatus(current.id, 'completed');
-    this.audioService.playTicketBumped();
-
-    // Clear tracker when order is completed
-    this.clearTracker();
-
-    const remainingActives = this.activeOrders().filter(o => o.id !== current.id);
-    if (remainingActives.length > 0) {
-      this.selectOrderToTrack(remainingActives[0]);
-    }
   }
 
   private handleStatusEvent(event: OrderStatusEvent): void {

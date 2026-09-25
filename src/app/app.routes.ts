@@ -43,7 +43,7 @@ export const routes: Routes = [
       },
       {
         path: 'orders',
-        loadComponent: () => import('./features/profile/customer-profile.component').then(m => m.CustomerProfileComponent)
+        loadComponent: () => import('./features/orders/customer-orders.component').then(m => m.CustomerOrdersComponent)
       },
       {
         path: 'rewards',

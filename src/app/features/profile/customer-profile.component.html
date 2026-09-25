@@ -1,170 +1,199 @@
 <div class="max-w-md mx-auto w-full space-y-5 py-2 animate-fade-in pb-8">
   
-  <!-- Profile Info Card -->
-  <div class="p-5 rounded-3xl bg-slate-900 border border-slate-800 shadow-xl space-y-4">
-    <div class="flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <span class="text-4xl p-2 bg-slate-950 rounded-2xl border border-slate-800">
-          {{ currentCustomer()?.avatarEmoji || '👤' }}
-        </span>
-        <div>
-          <h2 class="font-extrabold text-base text-white leading-tight">
-            {{ currentCustomer()?.name || 'Guest Diner' }}
-          </h2>
-          <p class="text-xs text-orange-400 font-mono mt-0.5">
-            {{ currentCustomer()?.phone || currentCustomer()?.email || 'Guest Mode' }}
-          </p>
-          @if (currentCustomer()?.lastLogin) {
-            <p class="text-[11px] text-slate-400 mt-1 flex items-center gap-1.5 font-medium">
-              <span>🕒 Last Login:</span>
-              <span class="font-mono text-slate-300">{{ currentCustomer()?.lastLogin }}</span>
-            </p>
-          }
-        </div>
-      </div>
-
-      @if (isGuest()) {
-        <a
-          routerLink="/auth"
-          class="px-3 py-1.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-orange-600/20 transition-all cursor-pointer"
-          title="Sign In or Register"
-        >
-          <app-icon name="log-in" [size]="14"></app-icon>
-          <span>Sign In / Register</span>
-        </a>
-      } @else {
-        <button
-          type="button"
-          (click)="onLogout()"
-          class="p-2 rounded-xl bg-slate-800 hover:bg-rose-900/60 text-slate-400 hover:text-rose-300 transition-colors cursor-pointer"
-          title="Sign Out / Switch Account"
-        >
-          <app-icon name="log-out" [size]="16"></app-icon>
-        </button>
-      }
-    </div>
-
-    <!-- Guest Conversion Prompt -->
-    @if (isGuest()) {
-      <div class="p-3.5 rounded-2xl bg-gradient-to-r from-orange-600/20 to-amber-600/20 border border-orange-500/30 flex items-center justify-between gap-3 text-xs">
-        <div>
-          <strong class="text-white block font-bold">You're ordering as Guest</strong>
-          <span class="text-[11px] text-slate-300">Create an account to save your order history and details for faster ordering!</span>
-        </div>
-        <a
-          routerLink="/auth"
-          class="px-3 py-1.5 rounded-xl bg-orange-600 text-white font-bold text-xs shrink-0"
-        >
-          Sign Up
-        </a>
-      </div>
-    }
-  </div>
-
-  <!-- Past Orders List & Thermal E-Receipts -->
-  <div class="space-y-3">
+  <!-- Page Header (Only shown when customer is logged in) -->
+  @if (!isGuest()) {
     <div class="flex items-center justify-between px-1">
-      <h3 class="font-extrabold text-sm text-white flex items-center gap-2">
-        <app-icon name="receipt" [size]="16" class="text-orange-500"></app-icon>
-        <span>Your Past Hawker Orders</span>
-      </h3>
-      <div class="flex items-center gap-2">
-        <span class="text-xs text-slate-400 font-mono">{{ customerOrders().length }} orders</span>
-        @if (customerOrders().length > 0) {
-          <button
-            type="button"
-            (click)="onClearOrders()"
-            class="text-[11px] text-rose-400 hover:text-rose-300 font-semibold px-2 py-0.5 rounded-lg bg-rose-500/10 border border-rose-500/20 transition-all cursor-pointer"
-          >
-            Clear History
-          </button>
-        }
+      <div class="flex items-center gap-2.5">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-white shadow-md shadow-orange-500/20 text-base">
+          👤
+        </div>
+        <div>
+          <h2 class="font-black text-base text-white">Account Profile</h2>
+          <p class="text-xs text-slate-400">Manage your diner identity & details</p>
+        </div>
       </div>
+
+      <button
+        type="button"
+        (click)="onLogout()"
+        class="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-rose-950/60 border border-slate-800 hover:border-rose-800 text-slate-300 hover:text-rose-300 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+        title="Sign Out"
+      >
+        <app-icon name="log-out" [size]="14"></app-icon>
+        <span>Sign Out</span>
+      </button>
     </div>
+  }
 
-    @if (customerOrders().length === 0) {
-      <div class="p-8 text-center bg-slate-900 border border-slate-800 rounded-3xl space-y-2">
-        <span class="text-3xl">🧾</span>
-        <h4 class="font-bold text-xs text-white">No past orders yet</h4>
-        <p class="text-[11px] text-slate-400">Your completed hawker meal receipts and tickets will appear here.</p>
-      </div>
-    } @else {
-      <div class="space-y-2.5">
-        @for (ord of customerOrders(); track ord.id) {
-          <div class="p-4 rounded-3xl bg-slate-900 border border-slate-800 shadow-md flex items-center justify-between gap-3">
-            <div class="space-y-1 min-w-0 flex-1">
-              <div class="flex items-center gap-2 flex-wrap">
-                <span class="font-black font-mono text-sm text-white">#{{ ord.orderNumber }}</span>
-                <span class="px-2 py-0.5 rounded text-[10px] uppercase font-bold"
-                  [ngClass]="ord.diningOption === 'dine_in' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-orange-950 text-orange-300 border border-orange-800'">
-                  {{ ord.diningOption === 'dine_in' ? 'Dine-In' : 'Takeaway' }}
-                </span>
-                <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider"
-                  [ngClass]="{
-                    'bg-amber-500/20 text-amber-300 border border-amber-500/30': ord.status === 'pending',
-                    'bg-blue-500/20 text-blue-300 border border-blue-500/30': ord.status === 'preparing',
-                    'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 animate-pulse': ord.status === 'ready',
-                    'bg-emerald-950/60 text-emerald-300 border border-emerald-800/80': ord.status === 'completed',
-                    'bg-rose-950 text-rose-400 border border-rose-800': ord.status === 'cancelled'
-                  }">
-                  {{ ord.status === 'ready' ? '🔥 Ready' : (ord.status === 'preparing' ? '👨‍🍳 Cooking' : (ord.status === 'completed' ? 'Order is completed' : ord.status)) }}
-                </span>
-              </div>
-              <p class="text-xs text-slate-300 line-clamp-1">
-                @for (item of ord.items; track item.id; let last = $last) {
-                  <span>{{ item.quantity }}x {{ item.name }}@if (!last) { , }</span>
-                }
-              </p>
-              <div class="text-[10px] text-slate-500 font-mono">
-                {{ formatOrderDate(ord.createdAt) }} • {{ ord.paymentMethod | uppercase }}
-              </div>
+  <!-- 1. REGISTERED / LOGGED IN USER VIEW -->
+  @if (!isGuest() && currentCustomer()) {
+    <div class="space-y-4">
+      
+      <!-- User Profile Header Card -->
+      <div class="p-5 rounded-3xl bg-slate-900 border border-slate-800 shadow-xl space-y-4">
+        <div class="flex items-center gap-3.5">
+          <span class="text-4xl p-2.5 bg-slate-950 rounded-2xl border border-slate-800 shrink-0">
+            {{ currentCustomer()?.avatarEmoji || '🥢' }}
+          </span>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2 flex-wrap">
+              <h3 class="font-extrabold text-base text-white leading-tight truncate">
+                {{ currentCustomer()?.name || 'Hawker Foodie' }}
+              </h3>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                {{ currentCustomer()?.tier || 'Bronze Kaki' }}
+              </span>
             </div>
+            <p class="text-xs text-orange-400 font-mono mt-0.5 truncate">
+              {{ currentCustomer()?.email || currentCustomer()?.phone || 'HawkerFlow Member' }}
+            </p>
+          </div>
+        </div>
 
-            <div class="text-right space-y-1.5 shrink-0">
-              <div class="font-black font-mono text-sm text-white">
-                ${{ ord.total.toFixed(2) }}
-              </div>
-              <div class="flex items-center gap-1 justify-end flex-wrap">
-                @if (ord.status !== 'completed' && ord.status !== 'cancelled') {
-                  <button
-                    type="button"
-                    (click)="trackOrder(ord.id)"
-                    class="px-2.5 py-1 rounded-lg bg-orange-600 hover:bg-orange-500 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer shadow-sm"
-                  >
-                    <app-icon name="clock" [size]="12"></app-icon>
-                    <span>Track</span>
-                  </button>
-                  <button
-                    type="button"
-                    (click)="markCompleted(ord)"
-                    class="px-2 py-1 rounded-lg bg-emerald-900/60 hover:bg-emerald-800 text-emerald-300 border border-emerald-700/60 font-bold text-[10px] cursor-pointer"
-                    title="Mark as collected"
-                  >
-                    Done
-                  </button>
-                }
-                <button
-                  type="button"
-                  (click)="selectedOrderForReceipt.set(ord)"
-                  class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[11px] flex items-center gap-1 cursor-pointer"
-                >
-                  <app-icon name="receipt" [size]="12"></app-icon>
-                  <span>Receipt</span>
-                </button>
-              </div>
-            </div>
+        @if (currentCustomer()?.lastLogin) {
+          <div class="p-3 rounded-2xl bg-slate-950 border border-slate-800/80 flex items-center justify-between text-xs">
+            <span class="text-slate-400 font-medium">🕒 Last Login</span>
+            <span class="font-mono text-slate-200 font-semibold">{{ currentCustomer()?.lastLogin }}</span>
           </div>
         }
       </div>
-    }
-  </div>
 
-  <!-- RECEIPT PREVIEW MODAL -->
-  @if (selectedOrderForReceipt()) {
-    <app-receipt-modal
-      [order]="selectedOrderForReceipt()"
-      (close)="selectedOrderForReceipt.set(null)"
-    ></app-receipt-modal>
+      <!-- User Contact & Account Details -->
+      <div class="p-5 rounded-3xl bg-slate-900 border border-slate-800 shadow-xl space-y-4">
+        <h4 class="font-extrabold text-xs text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+          <app-icon name="user" [size]="14" class="text-orange-500"></app-icon>
+          <span>User Details</span>
+        </h4>
+
+        <div class="space-y-3 text-xs">
+          <!-- Name -->
+          <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-950/80 border border-slate-800/60">
+            <span class="text-slate-400 font-medium">Full Name</span>
+            <span class="font-bold text-white">{{ currentCustomer()?.name || 'Not provided' }}</span>
+          </div>
+
+          <!-- Email -->
+          <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-950/80 border border-slate-800/60">
+            <span class="text-slate-400 font-medium">Email Address</span>
+            <span class="font-bold text-white font-mono">{{ currentCustomer()?.email || 'Not provided' }}</span>
+          </div>
+
+          <!-- Phone Number -->
+          <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-950/80 border border-slate-800/60">
+            <span class="text-slate-400 font-medium">Phone Number</span>
+            <span class="font-bold text-white font-mono">{{ currentCustomer()?.phone || 'Not provided' }}</span>
+          </div>
+
+          <!-- Loyalty Points -->
+          <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-950/80 border border-slate-800/60">
+            <span class="text-slate-400 font-medium">Hawker Points</span>
+            <span class="font-black text-amber-400 font-mono">{{ currentCustomer()?.loyaltyPoints || 0 }} pts</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Navigation Shortcuts -->
+      <div class="grid grid-cols-2 gap-3">
+        <a
+          routerLink="/orders"
+          class="p-4 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 transition-all flex items-center gap-3 cursor-pointer shadow-sm group"
+        >
+          <span class="text-xl p-2 rounded-xl bg-orange-500/10 text-orange-400 group-hover:scale-105 transition-transform">🧾</span>
+          <div>
+            <span class="font-bold text-xs text-white block">My Orders</span>
+            <span class="text-[10px] text-slate-400">View receipts</span>
+          </div>
+        </a>
+
+        <a
+          routerLink="/tracking"
+          class="p-4 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 transition-all flex items-center gap-3 cursor-pointer shadow-sm group"
+        >
+          <span class="text-xl p-2 rounded-xl bg-emerald-500/10 text-emerald-400 group-hover:scale-105 transition-transform">⏱️</span>
+          <div>
+            <span class="font-bold text-xs text-white block">Live Tracker</span>
+            <span class="text-[10px] text-slate-400">Track orders</span>
+          </div>
+        </a>
+      </div>
+
+    </div>
+  }
+
+  <!-- 2. GUEST MODE VIEW -->
+  @if (isGuest()) {
+    <div class="space-y-4">
+      
+      <!-- Guest Hero Banner & Perks Callout -->
+      <div class="p-6 rounded-3xl bg-gradient-to-b from-slate-900 to-slate-950 border border-orange-500/30 shadow-2xl text-center space-y-4">
+        <div class="w-16 h-16 mx-auto rounded-3xl bg-gradient-to-tr from-orange-500 to-amber-500 flex items-center justify-center text-3xl shadow-lg shadow-orange-500/30">
+          🎁
+        </div>
+
+        <div class="space-y-1.5">
+          <h3 class="font-black text-lg text-white tracking-tight">
+            Sign Up as HawkerFlow Foodie and enjoy perks!
+          </h3>
+          <p class="text-xs text-slate-300">
+            Sign in if are an existing user
+          </p>
+        </div>
+
+        <!-- Action CTA Buttons -->
+        <div class="pt-2 flex flex-col sm:flex-row gap-2.5">
+          <a
+            routerLink="/auth"
+            class="flex-1 py-3 px-4 rounded-2xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-extrabold text-xs shadow-lg shadow-orange-600/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <app-icon name="user-plus" [size]="16"></app-icon>
+            <span>Sign Up as HawkerFlow Foodie</span>
+          </a>
+
+          <a
+            routerLink="/auth"
+            class="py-3 px-5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <app-icon name="log-in" [size]="16"></app-icon>
+            <span>Sign In</span>
+          </a>
+        </div>
+      </div>
+
+      <!-- Perks Breakdown Card -->
+      <div class="p-5 rounded-3xl bg-slate-900 border border-slate-800 shadow-xl space-y-3.5">
+        <h4 class="font-extrabold text-xs text-orange-400 uppercase tracking-wider flex items-center gap-1.5">
+          <app-icon name="sparkles" [size]="14"></app-icon>
+          <span>Exclusive Member Perks</span>
+        </h4>
+
+        <div class="space-y-3 text-xs">
+          <div class="flex items-start gap-3 p-3 rounded-2xl bg-slate-950/80 border border-slate-800/60">
+            <span class="text-lg">⭐</span>
+            <div>
+              <strong class="text-white block font-bold">Hawker Points & Tiers</strong>
+              <span class="text-slate-400 text-[11px]">Earn 1 point per $1 spent and unlock Bronze, Silver & Gold perks.</span>
+            </div>
+          </div>
+
+          <div class="flex items-start gap-3 p-3 rounded-2xl bg-slate-950/80 border border-slate-800/60">
+            <span class="text-lg">🥢</span>
+            <div>
+              <strong class="text-white block font-bold">Stall Stamp Cards</strong>
+              <span class="text-slate-400 text-[11px]">Collect stamps automatically with every dish and redeem free meals.</span>
+            </div>
+          </div>
+
+          <div class="flex items-start gap-3 p-3 rounded-2xl bg-slate-950/80 border border-slate-800/60">
+            <span class="text-lg">☁️</span>
+            <div>
+              <strong class="text-white block font-bold">Saved History & E-Receipts</strong>
+              <span class="text-slate-400 text-[11px]">Seamlessly sync and access your thermal tax invoices across devices.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
   }
 
 </div>

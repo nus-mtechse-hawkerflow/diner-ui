@@ -620,16 +620,19 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     expect(updatedOrder?.completedAt).toBeDefined();
   });
 
-  it('should display Sign In / Register in orders page when diner is in guest mode and Sign Out when authenticated', async () => {
+  it('should display guest sign up / sign in perks in account page when diner is in guest mode and user details when authenticated', async () => {
     const { CustomerProfileComponent } = await import('./features/profile/customer-profile.component');
     const fixture = TestBed.createComponent(CustomerProfileComponent);
     
-    // In guest mode
+    // In guest mode (or signed out)
     customerService.continueAsGuest();
     fixture.detectChanges();
     let compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.textContent).toContain('Sign In / Register');
-    expect(compiled.querySelector('a[href="/auth"]')?.textContent).toContain('Sign In / Register');
+    expect(compiled.textContent).not.toContain('Account Profile');
+    expect(compiled.textContent).toContain('Sign Up as HawkerFlow Foodie and enjoy perks!');
+    expect(compiled.textContent).toContain('Sign in if are an existing user');
+    expect(compiled.textContent).not.toContain('Sign Out');
+    expect(compiled.textContent).not.toContain('Your Past Hawker Orders');
 
     // In logged-in mode
     vi.spyOn(cognitoService, 'signIn').mockReturnValue(of({
@@ -643,13 +646,25 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
       customerService.login('+65 9123 4567').subscribe(() => resolve());
     });
     const req = httpMock.expectOne(r => r.url.includes('/customer/user/'));
-    req.flush({ cust_name: 'Ah Hock', last_login: '2026-09-25 10:00:00' });
+    req.flush({ cust_name: 'Ah Hock', email: 'ahhock@hawker.sg', phone_number: '+6591234567', last_login: '2026-09-25 10:00:00' });
     await loginPromise;
 
     fixture.detectChanges();
     compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.textContent).not.toContain('Sign In / Register');
+    expect(compiled.textContent).toContain('Account Profile');
+    expect(compiled.textContent).not.toContain('Sign Up as HawkerFlow Foodie and enjoy perks!');
+    expect(compiled.textContent).toContain('Ah Hock');
+    expect(compiled.textContent).toContain('ahhock@hawker.sg');
+    expect(compiled.textContent).toContain('+6591234567');
+    expect(compiled.textContent).not.toContain('Your Past Hawker Orders');
     expect(compiled.querySelector('button[title*="Sign Out"]')).toBeTruthy();
+
+    // After signing out
+    fixture.componentInstance.onLogout();
+    fixture.detectChanges();
+    compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).not.toContain('Account Profile');
+    expect(compiled.textContent).toContain('Sign Up as HawkerFlow Foodie and enjoy perks!');
   });
 
   it('should configure AWS Amplify for LocalStack Cognito endpoint', () => {
@@ -1160,7 +1175,7 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     expect(order12?.items[0].quantity).toBe(1);
   });
 
-  it('should clear tracker when order is completed', async () => {
+  it('should clear tracker when order is completed and not have option for customer to mark as collected', async () => {
     const { CustomerOrderTrackerComponent } = await import('./features/order-tracker/customer-order-tracker.component');
     const fixture = TestBed.createComponent(CustomerOrderTrackerComponent);
     const component = fixture.componentInstance;
@@ -1189,8 +1204,13 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     expect(component.order()).toBeTruthy();
     expect(component.order()?.id).toBe('ord-301');
 
-    // Complete the order
-    component.markOrderCompleted();
+    // Customer should NOT see any button to mark food as collected in the tracker
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).not.toContain("I've Collected My Food");
+    expect(compiled.querySelector('button[click*="markOrderCompleted"]')).toBeNull();
+
+    // When backend marks the order completed (e.g. via notification / state update)
+    customerService.updateOrderStatus('ord-301', 'completed');
     fixture.detectChanges();
 
     // Tracker should be cleared
@@ -1352,6 +1372,49 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
 
     // Verify still NO call to GET /customer/user/
     httpMock.expectNone(r => r.url.includes('/customer/user/') && r.method === 'GET');
+  });
+
+  it('should disable and not render the "Done" button for ongoing orders in orders page', async () => {
+    const { CustomerOrdersComponent } = await import('./features/orders/customer-orders.component');
+    const fixture = TestBed.createComponent(CustomerOrdersComponent);
+
+    const ongoingOrder: Order = {
+      id: 'ord-555',
+      orderNumber: 'HF-555',
+      dailySequence: 555,
+      diningOption: 'dine_in',
+      items: [
+        {
+          id: 'item-1',
+          menuItemId: 'dish-1',
+          name: 'Chicken Rice',
+          basePrice: 5.5,
+          quantity: 1,
+          selectedModifiers: [],
+          unitPriceWithModifiers: 5.5,
+          totalPrice: 5.5
+        }
+      ],
+      subtotal: 5.5,
+      takeawayFee: 0,
+      tax: 0,
+      discount: 0,
+      total: 5.5,
+      paymentMethod: 'paynow',
+      paymentStatus: 'paid',
+      status: 'preparing',
+      createdAt: new Date().toISOString()
+    };
+
+    customerService.customerOrders.set([ongoingOrder]);
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    // Track button should be available
+    expect(compiled.textContent).toContain('Track');
+    // "Done" button should NOT be rendered
+    expect(compiled.textContent).not.toContain('Done');
+    expect(compiled.querySelector('button[title*="Mark as collected"]')).toBeNull();
   });
 });
 

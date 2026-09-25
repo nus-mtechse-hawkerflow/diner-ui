@@ -38,7 +38,7 @@ export class CustomerService {
 
   readonly isGuest = computed(() => {
     const cust = this.currentCustomer();
-    return cust !== null && cust.isGuest;
+    return cust === null || cust.isGuest;
   });
 
   readonly activeVouchersCount = computed(() => {
