@@ -8,7 +8,12 @@ import { CustomerService } from './core/services/customer.service';
 import { AuthService } from './core/services/auth.service';
 import { CognitoService, LOCALSTACK_COGNITO_ENDPOINT } from './core/services/cognito.service';
 import { HawkerApiService, HAWKER_STALLS_API_URL, ORDER_SUBMIT_API_URL } from './core/services/hawker-api.service';
-import { OrderNotificationService, SNS_ORDER_STATUS_TOPIC_ARN } from './core/services/order-notification.service';
+import {
+  OrderNotificationService,
+  SNS_ORDER_STATUS_TOPIC_ARN,
+  ORDER_BACKEND_API_BASE,
+  DEFAULT_ORDER_POLLING_INTERVAL_MS
+} from './core/services/order-notification.service';
 import { Order } from './core/models/order.model';
 import { BackendCreateOrderPayload, BackendStallsResponse } from './core/models/hawker-api.model';
 
@@ -222,6 +227,66 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     expect(req.request.method).toBe('POST');
     expect(req.request.body).toEqual(payload);
     req.flush(mockOrderResponse);
+  });
+
+  it('should have 10s default polling interval for live order status', () => {
+    expect(DEFAULT_ORDER_POLLING_INTERVAL_MS).toBe(10000);
+    expect(orderNotificationService.isPolling()).toBe(true);
+  });
+
+  it('should directly poll backend API at GET http://localhost:8082/hawkerflow/v1/order/orders/{order_id} for active orders', () => {
+    const testOrder: Order = {
+      id: '101',
+      orderNumber: 'HF-101',
+      dailySequence: 101,
+      diningOption: 'dine_in',
+      tableOrBuzzerNumber: 'Table 12',
+      items: [],
+      subtotal: 12,
+      takeawayFee: 0,
+      tax: 0,
+      discount: 0,
+      total: 12,
+      paymentMethod: 'paynow',
+      paymentStatus: 'paid',
+      status: 'pending',
+      createdAt: new Date().toISOString()
+    };
+    customerService.customerOrders.set([testOrder]);
+
+    // Trigger pollActiveOrders
+    orderNotificationService.pollActiveOrders();
+
+    const req = httpMock.expectOne(`${ORDER_BACKEND_API_BASE}/101`);
+    expect(req.request.method).toBe('GET');
+
+    // Simulate backend response with READY status
+    req.flush({
+      order_id: 101,
+      stall_id: 1,
+      status: 'READY'
+    });
+
+    const updated = customerService.customerOrders().find(o => o.id === '101');
+    expect(updated?.status).toBe('ready');
+    expect(orderNotificationService.activeToast()).toBeTruthy();
+    expect(orderNotificationService.activeToast()?.status).toBe('ready');
+
+    // Dismiss toast
+    orderNotificationService.dismissToast();
+    expect(orderNotificationService.activeToast()).toBeNull();
+
+    // Next poll with same status 'READY'
+    orderNotificationService.pollActiveOrders();
+    const req2 = httpMock.expectOne(`${ORDER_BACKEND_API_BASE}/101`);
+    req2.flush({
+      order_id: 101,
+      stall_id: 1,
+      status: 'READY'
+    });
+
+    // Toast should NOT be re-shown because status did not change
+    expect(orderNotificationService.activeToast()).toBeNull();
   });
 
   it('should process incoming AWS SNS order status notification and update order state', () => {

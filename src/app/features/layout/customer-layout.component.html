@@ -49,7 +49,7 @@
     </div>
   </header>
 
-  <!-- Real-Time Order Status Toast Notification (AWS SNS Topic: order_status) -->
+  <!-- Real-Time Order Status Toast Notification (Backend API Polling: localhost:8082) -->
   @if (activeToast(); as toast) {
     <div class="fixed top-16 left-4 right-4 z-50 max-w-md mx-auto animate-bounce-short">
       <div class="p-4 rounded-2xl bg-gradient-to-r from-slate-900 to-slate-950 border border-orange-500/80 shadow-2xl shadow-orange-500/20 text-white flex items-center justify-between gap-3 backdrop-blur-xl">

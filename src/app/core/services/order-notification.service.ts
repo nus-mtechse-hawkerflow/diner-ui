@@ -1,22 +1,18 @@
 import { Injectable, inject, signal, OnDestroy } from '@angular/core';
-import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
 import { Subject, Observable, catchError, of } from 'rxjs';
 import {
   OrderStatusEvent,
-  OrderStatusToast,
-  SnsMessageWrapper,
-  SqsReceiveResponse
+  OrderStatusToast
 } from '../models/order-notification.model';
-import { OrderStatus } from '../models/order.model';
+import { Order, OrderStatus } from '../models/order.model';
 import { CustomerService } from './customer.service';
 import { OrderService } from './order.service';
 import { AudioService } from './audio.service';
 
 export const SNS_ORDER_STATUS_TOPIC_ARN = 'arn:aws:sns:us-east-1:000000000000:order_status';
-export const LOCALSTACK_ENDPOINT = 'http://localhost:4566';
-export const SQS_QUEUE_URL = 'http://localhost:4566/000000000000/diner_order_status_queue';
-export const SQS_QUEUE_ARN = 'arn:aws:sqs:us-east-1:000000000000:diner_order_status_queue';
 export const ORDER_BACKEND_API_BASE = 'http://localhost:8082/hawkerflow/v1/order/orders';
+export const DEFAULT_ORDER_POLLING_INTERVAL_MS = 10000; // 10 seconds
 
 @Injectable({
   providedIn: 'root'
@@ -36,7 +32,6 @@ export class OrderNotificationService implements OnDestroy {
 
   private pollingInterval: any = null;
   private toastTimeout: any = null;
-  private isSubscribed = false;
 
   constructor() {
     this.init();
@@ -44,7 +39,6 @@ export class OrderNotificationService implements OnDestroy {
 
   init(): void {
     if (typeof window === 'undefined') return;
-    this.ensureSqsSubscription();
     this.startPolling();
   }
 
@@ -54,48 +48,16 @@ export class OrderNotificationService implements OnDestroy {
   }
 
   /**
-   * Ensures the SQS queue exists on LocalStack and is subscribed to the SNS topic:
-   * arn:aws:sns:us-east-1:000000000000:order_status
+   * Starts periodic polling (default every 10 seconds) of active diner orders
+   * from the backend Order Service (GET http://localhost:8082/hawkerflow/v1/order/orders/{order_id})
    */
-  ensureSqsSubscription(): void {
-    if (this.isSubscribed) return;
-
-    const createHeaders = new HttpHeaders({
-      'Content-Type': 'application/x-amz-json-1.0',
-      'X-Amz-Target': 'AmazonSQS.CreateQueue'
-    });
-
-    this.http.post(
-      LOCALSTACK_ENDPOINT + '/',
-      { QueueName: 'diner_order_status_queue' },
-      { headers: createHeaders }
-    ).pipe(
-      catchError(() => of(null))
-    ).subscribe(() => {
-      // Subscribe SQS queue to SNS topic
-      const subHeaders = new HttpHeaders({
-        'Content-Type': 'application/x-www-form-urlencoded'
-      });
-      const body = `Action=Subscribe&TopicArn=${encodeURIComponent(SNS_ORDER_STATUS_TOPIC_ARN)}&Protocol=sqs&Endpoint=${encodeURIComponent(SQS_QUEUE_ARN)}`;
-
-      this.http.post(LOCALSTACK_ENDPOINT + '/', body, { headers: subHeaders, responseType: 'text' }).pipe(
-        catchError(() => of(null))
-      ).subscribe(() => {
-        this.isSubscribed = true;
-      });
-    });
-  }
-
-  /**
-   * Polls SQS for incoming order status events published by the SNS topic.
-   */
-  startPolling(intervalMs = 2000): void {
+  startPolling(intervalMs = DEFAULT_ORDER_POLLING_INTERVAL_MS): void {
     if (this.pollingInterval) return;
     this.isPolling.set(true);
 
-    this.pollSqsMessages();
+    this.pollActiveOrders();
     this.pollingInterval = setInterval(() => {
-      this.pollSqsMessages();
+      this.pollActiveOrders();
     }, intervalMs);
   }
 
@@ -107,130 +69,160 @@ export class OrderNotificationService implements OnDestroy {
     this.isPolling.set(false);
   }
 
-  private pollSqsMessages(): void {
-    const headers = new HttpHeaders({
-      'Content-Type': 'application/x-amz-json-1.0',
-      'X-Amz-Target': 'AmazonSQS.ReceiveMessage'
-    });
+  /**
+   * Queries GET http://localhost:8082/hawkerflow/v1/order/orders/{order_id} for all active diner orders
+   */
+  pollActiveOrders(): void {
+    const activeOrders = this.customerService.activeCustomerOrders();
+    if (!activeOrders || activeOrders.length === 0) return;
 
-    const payload = {
-      QueueUrl: SQS_QUEUE_URL,
-      MaxNumberOfMessages: 10,
-      WaitTimeSeconds: 0
-    };
+    for (const order of activeOrders) {
+      const numericId = this.getNumericOrderId(order);
+      if (numericId === null || numericId === undefined) continue;
 
-    this.http.post<SqsReceiveResponse>(SQS_QUEUE_URL, payload, { headers }).pipe(
-      catchError(() => of({ Messages: [] }))
-    ).subscribe((response) => {
-      if (response && response.Messages && response.Messages.length > 0) {
-        response.Messages.forEach(msg => {
-          this.processSqsMessage(msg.Body, msg.ReceiptHandle);
-        });
-      }
-    });
+      this.fetchOrderLiveStatus(numericId).subscribe((backendOrder) => {
+        if (backendOrder) {
+          this.processBackendOrder(backendOrder, order);
+        }
+      });
+    }
   }
 
   /**
-   * Processes a single message from SQS (which wraps an SNS notification).
+   * Directly fetch live order details from backend service:
+   * GET http://localhost:8082/hawkerflow/v1/order/orders/{order_id}
    */
-  processSqsMessage(rawBody: string, receiptHandle?: string): OrderStatusEvent | null {
-    try {
-      let snsWrapper: SnsMessageWrapper | null = null;
-      let eventPayload: any = null;
+  fetchOrderLiveStatus(orderId: string | number): Observable<any> {
+    const numericId = parseInt(String(orderId).replace(/\D/g, ''), 10) || orderId;
+    return this.http.get<any>(`${ORDER_BACKEND_API_BASE}/${numericId}`).pipe(
+      catchError(() => of(null))
+    );
+  }
 
+  /**
+   * Parses backend order response and triggers status updates if changed
+   */
+  processBackendOrder(backendOrder: any, localOrder?: Order): OrderStatusEvent | null {
+    if (!backendOrder) return null;
+
+    const orderId = backendOrder.order_id ?? backendOrder.id ?? localOrder?.id;
+    if (orderId === undefined || orderId === null) return null;
+
+    const rawStatus = (backendOrder.order_status ?? backendOrder.status ?? '').toString().toUpperCase();
+    const stallId = backendOrder.stall_id ?? (backendOrder.orders && backendOrder.orders[0]?.stall_id) ?? localOrder?.numericStallId;
+
+    return this.processOrderStatusUpdate(orderId, rawStatus, stallId);
+  }
+
+  private lastKnownStatusMap = new Map<string, OrderStatus>();
+
+  /**
+   * Processes a status update for an order, updates store and fires toasts/alerts
+   * only when the order status has actually changed.
+   */
+  processOrderStatusUpdate(
+    orderId: string | number,
+    rawStatus: string,
+    stallId?: number,
+    eventType?: string
+  ): OrderStatusEvent {
+    const normalizedRaw = (rawStatus || '').toUpperCase();
+    let mappedStatus: OrderStatus = 'pending';
+
+    if (
+      normalizedRaw === 'COMPLETED' ||
+      normalizedRaw === 'COLLECTED' ||
+      normalizedRaw.includes('COMPLETE') ||
+      normalizedRaw.includes('COLLECT')
+    ) {
+      mappedStatus = 'completed';
+    } else if (
+      normalizedRaw === 'PREPARING' ||
+      normalizedRaw === 'ACCEPTED' ||
+      normalizedRaw === 'IN_PROGRESS' ||
+      normalizedRaw === 'COOKING' ||
+      normalizedRaw.includes('PREPAR') ||
+      normalizedRaw.includes('ACCEPT')
+    ) {
+      mappedStatus = 'preparing';
+    } else if (normalizedRaw === 'READY') {
+      mappedStatus = 'ready';
+    } else if (normalizedRaw === 'CANCELLED' || normalizedRaw === 'REJECTED') {
+      mappedStatus = 'cancelled';
+    }
+
+    const orderIdKey = String(orderId);
+    const existingOrder = this.customerService.customerOrders().find(
+      o => o.id === orderIdKey || o.id === `ord-${orderIdKey}` || o.dailySequence === Number(orderId)
+    );
+
+    const prevStatus = this.lastKnownStatusMap.get(orderIdKey) || existingOrder?.status;
+    const hasStatusChanged = !prevStatus || prevStatus !== mappedStatus;
+
+    // Update map with current state
+    this.lastKnownStatusMap.set(orderIdKey, mappedStatus);
+
+    const resolvedEventType = eventType || (
+      mappedStatus === 'ready'
+        ? 'OrderReady'
+        : (mappedStatus === 'completed'
+          ? (normalizedRaw.includes('COLLECT') ? 'OrderCollected' : 'OrderCompleted')
+          : (normalizedRaw.includes('ACCEPT') ? 'OrderAccepted' : 'OrderPreparing'))
+    );
+
+    const statusEvent: OrderStatusEvent = {
+      orderId: String(orderId),
+      stallId,
+      status: mappedStatus,
+      eventType: resolvedEventType,
+      timestamp: new Date().toISOString()
+    };
+
+    // Only fire notifications, audio alerts, and state emissions if status actually changed
+    if (hasStatusChanged) {
+      this.latestStatusEvent.set(statusEvent);
+      this.statusSubject.next(statusEvent);
+      this.updateLocalOrderStores(statusEvent);
+    }
+
+    return statusEvent;
+  }
+
+  /**
+   * Compatibility method for parsing JSON or SQS payloads if passed
+   */
+  processSqsMessage(rawBody: string): OrderStatusEvent | null {
+    try {
+      let eventPayload: any = null;
       try {
         const parsed = JSON.parse(rawBody);
         if (parsed.Type === 'Notification' && parsed.Message) {
-          snsWrapper = parsed;
           eventPayload = JSON.parse(parsed.Message);
-        } else if (parsed.event_type || parsed.data || parsed.order_id) {
+        } else {
           eventPayload = parsed;
         }
-      } catch (e) {
+      } catch {
         return null;
       }
 
       if (!eventPayload) return null;
-
       const data = eventPayload.data || eventPayload;
       const orderId = data.order_id ?? eventPayload.order_id;
-      const rawStatus = (data.status ?? data.order_status ?? eventPayload.status ?? 'READY').toString().toUpperCase();
-      const eventType = eventPayload.event_type || 'OrderReady';
+      const rawStatus = (data.status ?? data.order_status ?? eventPayload.status ?? '').toString();
+      const eventType = eventPayload.event_type;
 
       if (orderId === undefined || orderId === null) return null;
-
-      let mappedStatus: OrderStatus = 'pending';
-      if (
-        rawStatus === 'COMPLETED' ||
-        rawStatus === 'COLLECTED' ||
-        eventType === 'OrderCompleted' ||
-        eventType === 'OrderCollected' ||
-        eventType.toUpperCase().includes('COLLECT') ||
-        eventType.toUpperCase().includes('COMPLETE')
-      ) {
-        mappedStatus = 'completed';
-      } else if (
-        rawStatus === 'PREPARING' ||
-        rawStatus === 'ACCEPTED' ||
-        rawStatus === 'IN_PROGRESS' ||
-        rawStatus === 'COOKING' ||
-        eventType === 'OrderAccepted' ||
-        eventType === 'OrderPreparing'
-      ) {
-        mappedStatus = 'preparing';
-      } else if (
-        rawStatus === 'READY' ||
-        eventType === 'OrderReady'
-      ) {
-        mappedStatus = 'ready';
-      } else if (
-        rawStatus === 'CANCELLED' ||
-        rawStatus === 'REJECTED' ||
-        eventType === 'OrderCancelled'
-      ) {
-        mappedStatus = 'cancelled';
-      }
-
-      const statusEvent: OrderStatusEvent = {
-        orderId: String(orderId),
-        stallId: data.stall_id,
-        status: mappedStatus,
-        eventType,
-        timestamp: snsWrapper?.Timestamp || new Date().toISOString()
-      };
-
-      // Emit event
-      this.latestStatusEvent.set(statusEvent);
-      this.statusSubject.next(statusEvent);
-
-      // Apply updates to local stores
-      this.updateLocalOrderStores(statusEvent);
-
-      // Delete message from queue
-      if (receiptHandle) {
-        this.deleteSqsMessage(receiptHandle);
-      }
-
-      return statusEvent;
-    } catch (err) {
-      console.error('Error processing order status message:', err);
+      return this.processOrderStatusUpdate(orderId, rawStatus, data.stall_id, eventType);
+    } catch {
       return null;
     }
   }
 
-  private deleteSqsMessage(receiptHandle: string): void {
-    const headers = new HttpHeaders({
-      'Content-Type': 'application/x-amz-json-1.0',
-      'X-Amz-Target': 'AmazonSQS.DeleteMessage'
-    });
-
-    this.http.post(
-      SQS_QUEUE_URL,
-      { QueueUrl: SQS_QUEUE_URL, ReceiptHandle: receiptHandle },
-      { headers }
-    ).pipe(
-      catchError(() => of(null))
-    ).subscribe();
+  private getNumericOrderId(order: Order): number | string | null {
+    if (order.dailySequence) return order.dailySequence;
+    const num = parseInt(order.id.replace(/\D/g, ''), 10);
+    if (!isNaN(num)) return num;
+    return order.id;
   }
 
   private updateLocalOrderStores(event: OrderStatusEvent): void {
@@ -284,16 +276,5 @@ export class OrderNotificationService implements OnDestroy {
 
   dismissToast(): void {
     this.activeToast.set(null);
-  }
-
-  /**
-   * Directly fetch live order details from backend service:
-   * GET http://localhost:8082/hawkerflow/v1/order/orders/{order_id}
-   */
-  fetchOrderLiveStatus(orderId: string | number): Observable<any> {
-    const numericId = parseInt(String(orderId).replace(/\D/g, ''), 10) || orderId;
-    return this.http.get<any>(`${ORDER_BACKEND_API_BASE}/${numericId}`).pipe(
-      catchError(err => of(null))
-    );
   }
 }
