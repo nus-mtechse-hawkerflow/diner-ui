@@ -41,7 +41,9 @@ export interface CognitoSignUpResult {
 export interface CognitoSignInResult {
   success: boolean;
   isSignedIn: boolean;
+  requiresMfa?: boolean;
   user?: any;
+  userSub?: string;
   tokens?: CognitoAuthTokens;
   nextStep?: any;
   codeDeliveryDetails?: any;
@@ -133,18 +135,10 @@ export class CognitoService {
         errorMsg.toLowerCase().includes('already exists') ||
         errorMsg.toLowerCase().includes('usernameexistsexception') ||
         errorMsg.toLowerCase().includes('user already exists');
-      if (isUserExists) {
-        return {
-          success: false,
-          isSignUpComplete: false,
-          isUsernameExists: true,
-          error: errorMsg
-        };
-      }
       return {
-        success: true,
-        isSignUpComplete: true,
-        userSub: 'sub-' + Date.now(),
+        success: false,
+        isSignUpComplete: false,
+        isUsernameExists: isUserExists,
         error: errorMsg
       };
     });
@@ -167,20 +161,9 @@ export class CognitoService {
     })).catch((err: any) => {
       const errorMsg = err?.message || 'Confirmation code verification failed';
       this.lastError.set(errorMsg);
-      const isCodeMismatch = err?.name === 'CodeMismatchException' ||
-        err?.name === 'ExpiredCodeException' ||
-        errorMsg.toLowerCase().includes('invalid code') ||
-        errorMsg.toLowerCase().includes('expired');
-      if (isCodeMismatch) {
-        return {
-          success: false,
-          isSignUpComplete: false,
-          error: errorMsg
-        };
-      }
       return {
-        success: true,
-        isSignUpComplete: true,
+        success: false,
+        isSignUpComplete: false,
         error: errorMsg
       };
     });
@@ -203,7 +186,7 @@ export class CognitoService {
       const errorMsg = err?.message || 'Failed to resend confirmation code';
       this.lastError.set(errorMsg);
       return {
-        success: true,
+        success: false,
         destination: username,
         error: errorMsg
       };
@@ -218,10 +201,65 @@ export class CognitoService {
   signIn(username: string, password?: string): Observable<CognitoSignInResult> {
     this.lastError.set(null);
 
-    const signInPromise = signIn({
-      username,
-      password: password || 'HawkerFlow123!'
-    }).then(async (output: SignInOutput) => {
+    const executeSignIn = async (): Promise<CognitoSignInResult> => {
+      let output: SignInOutput;
+      try {
+        output = await signIn({
+          username,
+          password: password || 'HawkerFlow123!'
+        });
+      } catch (err: any) {
+        const errorMsg = err?.message || 'Amplify SignIn failed';
+        const isAlreadySignedIn = err?.name === 'UserAlreadyAuthenticatedException' ||
+          errorMsg.toLowerCase().includes('already a signed in user') ||
+          errorMsg.toLowerCase().includes('already signed in');
+
+        if (isAlreadySignedIn) {
+          // Clear lingering session and retry fresh signIn
+          try {
+            await signOut();
+            output = await signIn({
+              username,
+              password: password || 'HawkerFlow123!'
+            });
+          } catch (retryErr: any) {
+            try {
+              const session = await fetchAuthSession();
+              const currentUser = await getCurrentUser().catch(() => null);
+              const tokens: CognitoAuthTokens = {
+                accessToken: session.tokens?.accessToken?.toString(),
+                idToken: session.tokens?.idToken?.toString()
+              };
+              const userSub = currentUser?.userId || (session.tokens?.idToken?.payload as any)?.sub || currentUser?.username || username;
+              return {
+                success: true,
+                isSignedIn: true,
+                user: currentUser || { username },
+                userSub,
+                tokens
+              };
+            } catch {
+              const retryMsg = retryErr?.message || 'Sign in failed after clearing previous session';
+              this.lastError.set(retryMsg);
+              return {
+                success: false,
+                isSignedIn: false,
+                user: { username },
+                error: retryMsg
+              };
+            }
+          }
+        } else {
+          this.lastError.set(errorMsg);
+          return {
+            success: false,
+            isSignedIn: false,
+            user: { username },
+            error: errorMsg
+          };
+        }
+      }
+
       if (output.isSignedIn) {
         try {
           const session = await fetchAuthSession();
@@ -234,10 +272,13 @@ export class CognitoService {
           };
           this.activeTokens.set(tokens);
 
+          const userSub = currentUser?.userId || (session.tokens?.idToken?.payload as any)?.sub || currentUser?.username || username;
+
           return {
             success: true,
             isSignedIn: true,
             user: currentUser,
+            userSub,
             tokens,
             nextStep: output.nextStep
           };
@@ -246,6 +287,7 @@ export class CognitoService {
             success: true,
             isSignedIn: true,
             user: { username },
+            userSub: 'sub-' + username,
             nextStep: output.nextStep
           };
         }
@@ -256,34 +298,15 @@ export class CognitoService {
       return {
         success: true,
         isSignedIn: false,
+        requiresMfa: true,
         user: { username },
+        userSub: 'sub-' + username,
         nextStep: output.nextStep,
         codeDeliveryDetails: codeDelivery
       };
-    }).catch((err: any) => {
-      const errorMsg = err?.message || 'Amplify SignIn failed';
-      this.lastError.set(errorMsg);
-      const isAuthFail = err?.name === 'NotAuthorizedException' ||
-        err?.name === 'UserNotFoundException' ||
-        errorMsg.toLowerCase().includes('incorrect username or password') ||
-        errorMsg.toLowerCase().includes('user does not exist');
-      if (isAuthFail) {
-        return {
-          success: false,
-          isSignedIn: false,
-          user: { username },
-          error: errorMsg
-        };
-      }
-      return {
-        success: true,
-        isSignedIn: true,
-        user: { username },
-        error: errorMsg
-      };
-    });
+    };
 
-    return from(signInPromise);
+    return from(executeSignIn());
   }
 
   /**
@@ -306,11 +329,13 @@ export class CognitoService {
             idToken: session.tokens?.idToken?.toString()
           };
           this.activeTokens.set(tokens);
+          const userSub = currentUser?.userId || (session.tokens?.idToken?.payload as any)?.sub || currentUser?.username;
 
           return {
             success: true,
             isSignedIn: true,
             user: currentUser,
+            userSub,
             tokens,
             nextStep: output.nextStep
           };
@@ -318,6 +343,7 @@ export class CognitoService {
           return {
             success: true,
             isSignedIn: true,
+            userSub: 'sub-user',
             nextStep: output.nextStep
           };
         }
@@ -331,19 +357,9 @@ export class CognitoService {
     }).catch((err: any) => {
       const errorMsg = err?.message || 'MFA code verification failed';
       this.lastError.set(errorMsg);
-      const isCodeMismatch = err?.name === 'CodeMismatchException' ||
-        errorMsg.toLowerCase().includes('invalid code') ||
-        errorMsg.toLowerCase().includes('expired');
-      if (isCodeMismatch) {
-        return {
-          success: false,
-          isSignedIn: false,
-          error: errorMsg
-        };
-      }
       return {
-        success: true,
-        isSignedIn: true,
+        success: false,
+        isSignedIn: false,
         error: errorMsg
       };
     });

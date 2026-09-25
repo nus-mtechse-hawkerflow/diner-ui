@@ -103,9 +103,11 @@ export class OrderService {
     const unitPrice = item.basePrice + modifierSum;
     const modifierKey = selectedModifiers.map(m => m.optionId).sort().join('_') + '_' + (specialNotes || '');
 
+    const numericDishId = item.numericDishId ?? (parseInt(item.id, 10) || undefined);
     const existingIndex = this.cartItems().findIndex(cartItem => {
+      const isDishMatch = cartItem.menuItemId === item.id || (numericDishId && cartItem.numericDishId === numericDishId);
       const cartModKey = cartItem.selectedModifiers.map(m => m.optionId).sort().join('_') + '_' + (cartItem.specialNotes || '');
-      return cartItem.menuItemId === item.id && cartModKey === modifierKey;
+      return isDishMatch && cartModKey === modifierKey;
     });
 
     if (existingIndex > -1) {
@@ -121,6 +123,7 @@ export class OrderService {
       const newItem: OrderItem = {
         id: 'cart-item-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
         menuItemId: item.id,
+        numericDishId,
         name: item.name,
         chineseName: item.chineseName,
         basePrice: item.basePrice,
@@ -236,6 +239,7 @@ export class OrderService {
     const stallNumericId = stall?.numericId ?? (stall ? parseInt(stall.id, 10) || 1 : 1);
     const dishes: BackendDishOrder[] = this.cartItems().map(item => ({
       dish_id: item.numericDishId ?? (parseInt(item.menuItemId, 10) || 1),
+      dish_name: item.name,
       quantity: item.quantity,
       price: Number(item.totalPrice.toFixed(2))
     }));

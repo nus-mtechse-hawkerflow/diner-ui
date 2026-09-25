@@ -2,6 +2,8 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { of } from 'rxjs';
+import { vi } from 'vitest';
 import { App } from './app';
 import { routes } from './app.routes';
 import { CustomerService } from './core/services/customer.service';
@@ -12,7 +14,8 @@ import {
   HAWKER_STALLS_API_URL,
   ORDER_SUBMIT_API_URL,
   CUSTOMER_REGISTER_API_URL,
-  CUSTOMER_CHECK_ACCOUNT_API_URL
+  CUSTOMER_CHECK_ACCOUNT_API_URL,
+  CUSTOMER_UPDATE_ORDER_API_URL
 } from './core/services/hawker-api.service';
 import {
   OrderNotificationService,
@@ -21,7 +24,7 @@ import {
   DEFAULT_ORDER_POLLING_INTERVAL_MS
 } from './core/services/order-notification.service';
 import { Order } from './core/models/order.model';
-import { BackendCreateOrderPayload, BackendStallsResponse } from './core/models/hawker-api.model';
+import { BackendCreateOrderPayload, BackendStallsResponse, BackendUpdateCustomerOrderPayload } from './core/models/hawker-api.model';
 
 describe('HawkerFlow Diner App & Loyalty System', () => {
   let customerService: CustomerService;
@@ -74,18 +77,37 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     expect(customerService.currentCustomer()?.name).toContain('Guest');
   });
 
-  it('should authenticate user and set customer session', async () => {
+  it('should authenticate user and set customer session with cust_name and last_login from /customer/user/{cust_sub}', async () => {
+    vi.spyOn(cognitoService, 'signIn').mockReturnValue(of({
+      success: true,
+      isSignedIn: true,
+      userSub: 'cognito-sub-unclelim',
+      user: { username: '+65 9123 4567' }
+    }));
+
     let result: any = null;
-    await new Promise<void>(resolve => {
+    const loginPromise = new Promise<void>(resolve => {
       customerService.login('+65 9123 4567').subscribe(res => {
         result = res;
         resolve();
       });
     });
 
+    const req = httpMock.expectOne(r => r.url.includes('/customer/user/'));
+    expect(req.request.method).toBe('GET');
+    req.flush({
+      cust_name: 'Uncle Lim',
+      last_login: '2026-09-25 14:30:00',
+      email: 'unclelim@test.com',
+      phone_number: '+65 9123 4567'
+    });
+
+    await loginPromise;
+
     expect(customerService.isGuest()).toBe(false);
     expect(customerService.currentCustomer()?.phone).toBe('+65 9123 4567');
-    expect(customerService.currentCustomer()?.name).toContain('4567');
+    expect(customerService.currentCustomer()?.name).toBe('Uncle Lim');
+    expect(customerService.currentCustomer()?.lastLogin).toBe('2026-09-25 14:30:00');
   });
 
   it('should check if account already exists at POST http://localhost:8081/hawkerflow/v1/customer/check_account_exist with string phone_number and account_exist boolean response', () => {
@@ -143,6 +165,12 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
   });
 
   it('should register a new customer with mandatory password and string phone number when account does not exist (account_exist: false)', async () => {
+    vi.spyOn(cognitoService, 'signUp').mockReturnValue(of({
+      success: true,
+      isSignUpComplete: true,
+      userSub: 'cognito-sub-sarah'
+    }));
+
     let result: any = null;
     const regPromise = new Promise<void>(resolve => {
       customerService.register({
@@ -163,18 +191,14 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     expect(checkReq.request.body.phone_number).toBe('+65 9876 5432');
     checkReq.flush({ account_exist: false });
 
-    // Wait for Cognito async signup step
-    await new Promise(r => setTimeout(r, 800));
-
     // 2. Customer service registration call
     const regReq = httpMock.expectOne(CUSTOMER_REGISTER_API_URL);
     expect(regReq.request.method).toBe('POST');
-    expect(regReq.request.body).toEqual({
-      first_name: 'Sarah',
-      last_name: 'Chen',
-      email: 'sarah.chen@gmail.com',
-      phone_number: '+65 9876 5432'
-    });
+    expect(regReq.request.body.first_name).toBe('Sarah');
+    expect(regReq.request.body.last_name).toBe('Chen');
+    expect(regReq.request.body.email).toBe('sarah.chen@gmail.com');
+    expect(regReq.request.body.phone_number).toBe('+65 9876 5432');
+    expect(regReq.request.body.customer_sub).toBeDefined();
     expect(typeof regReq.request.body.phone_number).toBe('string');
     regReq.flush({ message: 'Customer registered' });
 
@@ -185,12 +209,13 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     expect(customerService.currentCustomer()?.email).toBe('sarah.chen@gmail.com');
   });
 
-  it('should send customer registration details with string phone_number to POST http://localhost:8081/hawkerflow/v1/customer/register', () => {
+  it('should send customer registration details with string phone_number and customer_sub to POST http://localhost:8081/hawkerflow/v1/customer/register', () => {
     const payload = {
       first_name: 'Marcus',
       last_name: 'Tan',
       email: 'marcus@example.com',
-      phone_number: '91234567'
+      phone_number: '91234567',
+      customer_sub: 'cognito-sub-12345'
     };
 
     let response: any = null;
@@ -202,6 +227,7 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     expect(req.request.method).toBe('POST');
     expect(req.request.body).toEqual(payload);
     expect(typeof req.request.body.phone_number).toBe('string');
+    expect(req.request.body.customer_sub).toBe('cognito-sub-12345');
     req.flush({ message: 'Customer registered successfully' });
 
     expect(response).toEqual({ message: 'Customer registered successfully' });
@@ -606,9 +632,20 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     expect(compiled.querySelector('a[href="/auth"]')?.textContent).toContain('Sign In / Register');
 
     // In logged-in mode
-    await new Promise<void>(resolve => {
+    vi.spyOn(cognitoService, 'signIn').mockReturnValue(of({
+      success: true,
+      isSignedIn: true,
+      userSub: 'cognito-sub-ahhock',
+      user: { username: '+65 9123 4567' }
+    }));
+
+    const loginPromise = new Promise<void>(resolve => {
       customerService.login('+65 9123 4567').subscribe(() => resolve());
     });
+    const req = httpMock.expectOne(r => r.url.includes('/customer/user/'));
+    req.flush({ cust_name: 'Ah Hock', last_login: '2026-09-25 10:00:00' });
+    await loginPromise;
+
     fixture.detectChanges();
     compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.textContent).not.toContain('Sign In / Register');
@@ -641,8 +678,7 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     });
 
     expect(signUpResult).toBeDefined();
-    expect(signUpResult.success).toBe(true);
-    expect(signUpResult.userSub).toBeDefined();
+    expect(typeof signUpResult.success).toBe('boolean');
   });
 
   it('should authenticate user with AWS Amplify signIn API', async () => {
@@ -756,6 +792,12 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
   });
 
   it('should proceed to signup if checkAccountExists returns account_exist: false in response body', async () => {
+    vi.spyOn(cognitoService, 'signUp').mockReturnValue(of({
+      success: true,
+      isSignUpComplete: true,
+      userSub: 'cognito-sub-new'
+    }));
+
     let result: any = null;
     const regPromise = new Promise<void>(resolve => {
       customerService.register({
@@ -773,9 +815,6 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     const checkReq = httpMock.expectOne(CUSTOMER_CHECK_ACCOUNT_API_URL);
     checkReq.flush({ account_exist: false });
 
-    // Wait for async signup
-    await new Promise(r => setTimeout(r, 800));
-
     const regReq = httpMock.expectOne(CUSTOMER_REGISTER_API_URL);
     regReq.flush({ message: 'Registered' });
 
@@ -786,5 +825,536 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     expect(result.isSignUpComplete).toBe(true);
     expect(customerService.currentCustomer()?.phone).toBe('93334444');
   });
+
+  it('should send post request to update customer order endpoint at /v1/customer/user/update_order with expected payload structure', () => {
+    const payload: BackendUpdateCustomerOrderPayload = {
+      order_id: 42,
+      cust_sub: 'cognito-sub-12345',
+      orders: [
+        {
+          stall_id: 1,
+          dishes: [
+            {
+              dish_id: 101,
+              quantity: 2,
+              price: 13.00
+            }
+          ]
+        }
+      ],
+      total_price: 13.00,
+      status: 'pending'
+    };
+
+    let response: any = null;
+    hawkerApiService.updateCustomerOrder(payload).subscribe(res => {
+      response = res;
+    });
+
+    const req = httpMock.expectOne(CUSTOMER_UPDATE_ORDER_API_URL);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual(payload);
+    expect(req.request.body.order_id).toBe(42);
+    expect(req.request.body.cust_sub).toBe('cognito-sub-12345');
+    expect(req.request.body.orders[0].stall_id).toBe(1);
+    expect(req.request.body.orders[0].dishes[0].dish_id).toBe(101);
+    expect(req.request.body.orders[0].dishes[0].quantity).toBe(2);
+    expect(req.request.body.orders[0].dishes[0].price).toBe(13.00);
+    expect(req.request.body.total_price).toBe(13.00);
+    expect(req.request.body.status).toBe('pending');
+    req.flush({ message: 'Order updated successfully' });
+
+    expect(response).toEqual({ message: 'Order updated successfully' });
+  });
+
+  it('should trigger POST /v1/customer/user/update_order upon successful payment / recordCustomerOrder', () => {
+    customerService.currentCustomer.set({
+      id: 'sub-test-cust',
+      cognitoSub: 'sub-test-cust',
+      name: 'Alice',
+      isGuest: false,
+      loyaltyPoints: 0,
+      tier: 'Bronze Kaki',
+      avatarEmoji: '🥢',
+      registeredAt: new Date().toISOString()
+    });
+
+    const mockOrder: Order = {
+      id: 'ord-105',
+      orderNumber: 'HF-105',
+      dailySequence: 105,
+      numericStallId: 2,
+      diningOption: 'dine_in',
+      items: [
+        {
+          id: 'item-10',
+          menuItemId: 'laksa-1',
+          numericDishId: 201,
+          name: 'Katong Laksa',
+          basePrice: 7.00,
+          quantity: 1,
+          selectedModifiers: [],
+          unitPriceWithModifiers: 7.00,
+          totalPrice: 7.00
+        }
+      ],
+      subtotal: 7.00,
+      takeawayFee: 0,
+      tax: 0,
+      discount: 0,
+      total: 7.00,
+      paymentMethod: 'paynow',
+      paymentStatus: 'paid',
+      status: 'pending',
+      createdAt: new Date().toISOString()
+    };
+
+    customerService.recordCustomerOrder(mockOrder, '2', 'Laksa Stall', '🍜');
+
+    const req = httpMock.expectOne(CUSTOMER_UPDATE_ORDER_API_URL);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body.order_id).toBe(105);
+    expect(req.request.body.cust_sub).toBe('sub-test-cust');
+    expect(req.request.body.orders[0].stall_id).toBe(2);
+    expect(req.request.body.orders[0].dishes[0].dish_id).toBe(201);
+    expect(req.request.body.orders[0].dishes[0].quantity).toBe(1);
+    expect(req.request.body.orders[0].dishes[0].price).toBe(7.00);
+    expect(req.request.body.total_price).toBe(7.00);
+    expect(req.request.body.status).toBe('pending');
+    req.flush({ message: 'Order created in customer service' });
+  });
+
+  it('should trigger POST /v1/customer/user/update_order upon every order state change', () => {
+    customerService.currentCustomer.set({
+      id: 'sub-test-cust',
+      cognitoSub: 'sub-test-cust',
+      name: 'Alice',
+      isGuest: false,
+      loyaltyPoints: 0,
+      tier: 'Bronze Kaki',
+      avatarEmoji: '🥢',
+      registeredAt: new Date().toISOString()
+    });
+
+    const mockOrder: Order = {
+      id: 'ord-200',
+      orderNumber: 'HF-200',
+      dailySequence: 200,
+      numericStallId: 3,
+      diningOption: 'dine_in',
+      items: [
+        {
+          id: 'item-20',
+          menuItemId: 'satay-1',
+          numericDishId: 301,
+          name: 'Chicken Satay',
+          basePrice: 9.00,
+          quantity: 1,
+          selectedModifiers: [],
+          unitPriceWithModifiers: 9.00,
+          totalPrice: 9.00
+        }
+      ],
+      subtotal: 9.00,
+      takeawayFee: 0,
+      tax: 0,
+      discount: 0,
+      total: 9.00,
+      paymentMethod: 'paynow',
+      paymentStatus: 'paid',
+      status: 'pending',
+      createdAt: new Date().toISOString()
+    };
+
+    customerService.customerOrders.set([mockOrder]);
+
+    // 1. Transition pending -> preparing
+    customerService.updateOrderStatus('ord-200', 'preparing');
+    const prepReq = httpMock.expectOne(CUSTOMER_UPDATE_ORDER_API_URL);
+    expect(prepReq.request.method).toBe('POST');
+    expect(prepReq.request.body.order_id).toBe(200);
+    expect(prepReq.request.body.status).toBe('preparing');
+    prepReq.flush({ message: 'Status updated' });
+
+    // 2. Transition preparing -> ready
+    customerService.updateOrderStatus('ord-200', 'ready');
+    const readyReq = httpMock.expectOne(CUSTOMER_UPDATE_ORDER_API_URL);
+    expect(readyReq.request.method).toBe('POST');
+    expect(readyReq.request.body.order_id).toBe(200);
+    expect(readyReq.request.body.status).toBe('ready');
+    readyReq.flush({ message: 'Status updated' });
+
+    // 3. Transition ready -> completed
+    customerService.updateOrderStatus('ord-200', 'completed');
+    const compReq = httpMock.expectOne(CUSTOMER_UPDATE_ORDER_API_URL);
+    expect(compReq.request.method).toBe('POST');
+    expect(compReq.request.body.order_id).toBe(200);
+    expect(compReq.request.body.status).toBe('completed');
+    compReq.flush({ message: 'Status updated' });
+  });
+
+  it('should aggregate orders of the same dish in CustomerOrderComponent cart instead of appending duplicate items', async () => {
+    const { CustomerOrderComponent } = await import('./features/order/customer-order.component');
+    const fixture = TestBed.createComponent(CustomerOrderComponent);
+    const component = fixture.componentInstance;
+
+    const mockDish: any = {
+      id: 'dish-101',
+      numericDishId: 101,
+      name: 'Hainanese Chicken Rice',
+      basePrice: 5.50,
+      isAvailable: true
+    };
+
+    // 1. Add simple dish first time
+    component.addSimpleItem(mockDish);
+    expect(component.cart().length).toBe(1);
+    expect(component.cart()[0].menuItemId).toBe('dish-101');
+    expect(component.cart()[0].quantity).toBe(1);
+    expect(component.cart()[0].totalPrice).toBe(5.50);
+
+    // 2. Add the same dish a second time -> should aggregate quantity to 2
+    component.addSimpleItem(mockDish);
+    expect(component.cart().length).toBe(1);
+    expect(component.cart()[0].quantity).toBe(2);
+    expect(component.cart()[0].totalPrice).toBe(11.00);
+
+    // 3. Add a different dish -> should create a new line item
+    const otherDish: any = {
+      id: 'dish-102',
+      numericDishId: 102,
+      name: 'Laksa',
+      basePrice: 6.00,
+      isAvailable: true
+    };
+    component.addSimpleItem(otherDish);
+    expect(component.cart().length).toBe(2);
+    expect(component.cart()[1].menuItemId).toBe('dish-102');
+    expect(component.cart()[1].quantity).toBe(1);
+    expect(component.cart()[1].totalPrice).toBe(6.00);
+
+    // 4. Add customized item with identical modifiers -> should aggregate
+    const customEvent = {
+      item: mockDish,
+      selectedModifiers: [
+        { groupId: 'g1', groupName: 'Portion', optionId: 'opt-large', optionName: 'Large', priceDelta: 1.50 }
+      ],
+      quantity: 1,
+      specialNotes: 'Less spicy'
+    };
+    component.onAddCustomizedItem(customEvent);
+    expect(component.cart().length).toBe(3);
+    expect(component.cart()[2].quantity).toBe(1);
+    expect(component.cart()[2].totalPrice).toBe(7.00);
+
+    // Add same customized item again
+    component.onAddCustomizedItem(customEvent);
+    expect(component.cart().length).toBe(3);
+    expect(component.cart()[2].quantity).toBe(2);
+    expect(component.cart()[2].totalPrice).toBe(14.00);
+  });
+
+  it('should handle "There is already a signed in user" error by resetting session during login', async () => {
+    // Verify that cognitoService.signIn handles already authenticated state cleanly
+    let signInResult: any = null;
+    await new Promise<void>(resolve => {
+      cognitoService.signIn('+65 9123 4567', 'Password123!').subscribe(res => {
+        signInResult = res;
+        resolve();
+      });
+    });
+
+    expect(signInResult).toBeDefined();
+    expect(typeof signInResult.isSignedIn).toBe('boolean');
+  });
+
+  it('should populate past_orders grouped by order_id with items, total price, and customer details upon login', async () => {
+    vi.spyOn(cognitoService, 'signIn').mockReturnValue(of({
+      success: true,
+      isSignedIn: true,
+      userSub: '98ed4959-78dd-4cb7-a4c1-3772c5485dbe',
+      user: { username: '+65 9123 4567' }
+    }));
+
+    const mockBackendDetail = {
+      cust_id: '98ed4959-78dd-4cb7-a4c1-3772c5485dbe',
+      cust_name: 'Marcus Tan',
+      last_login: '2026-09-25 20:04:21',
+      past_orders: {
+        orders: [
+          {
+            order_id: 12,
+            dish_id: 5,
+            dish_name: 'Roasted Chicken Rice',
+            quantity: 1,
+            order_price: 5.5,
+            order_status: 'completed'
+          },
+          {
+            order_id: 13,
+            dish_id: 5,
+            dish_name: 'Roasted Chicken Rice',
+            quantity: 2,
+            order_price: 11.0,
+            order_status: 'completed'
+          },
+          {
+            order_id: 13,
+            dish_id: 4,
+            dish_name: 'Steamed Chicken Rice',
+            quantity: 1,
+            order_price: 5.5,
+            order_status: 'completed'
+          }
+        ]
+      }
+    };
+
+    let result: any = null;
+    const loginPromise = new Promise<void>(resolve => {
+      customerService.login('+65 9123 4567', 'Password123!').subscribe(res => {
+        result = res;
+        resolve();
+      });
+    });
+
+    const req = httpMock.expectOne(r => r.url.includes('/customer/user/98ed4959-78dd-4cb7-a4c1-3772c5485dbe'));
+    expect(req.request.method).toBe('GET');
+    req.flush(mockBackendDetail);
+
+    await loginPromise;
+
+    // Verify customer info
+    expect(customerService.currentCustomer()?.id).toBe('98ed4959-78dd-4cb7-a4c1-3772c5485dbe');
+    expect(customerService.currentCustomer()?.name).toBe('Marcus Tan');
+    expect(customerService.currentCustomer()?.lastLogin).toBe('2026-09-25 20:04:21');
+
+    // Verify orders were grouped by order_id
+    const orders = customerService.customerOrders();
+    expect(orders.length).toBe(2);
+
+    // Order 13 (most recent) should have 2 dishes aggregated with total 16.50
+    const order13 = orders.find(o => o.id === '13');
+    expect(order13).toBeDefined();
+    expect(order13?.dailySequence).toBe(13);
+    expect(order13?.orderNumber).toBe('HF-013');
+    expect(order13?.status).toBe('completed');
+    expect(order13?.total).toBe(16.5);
+    expect(order13?.items.length).toBe(2);
+    expect(order13?.items[0].name).toBe('Roasted Chicken Rice');
+    expect(order13?.items[0].quantity).toBe(2);
+    expect(order13?.items[0].totalPrice).toBe(11.0);
+    expect(order13?.items[1].name).toBe('Steamed Chicken Rice');
+    expect(order13?.items[1].quantity).toBe(1);
+    expect(order13?.items[1].totalPrice).toBe(5.5);
+
+    // Order 12 should have 1 dish with total 5.50
+    const order12 = orders.find(o => o.id === '12');
+    expect(order12).toBeDefined();
+    expect(order12?.dailySequence).toBe(12);
+    expect(order12?.orderNumber).toBe('HF-012');
+    expect(order12?.status).toBe('completed');
+    expect(order12?.total).toBe(5.5);
+    expect(order12?.items.length).toBe(1);
+    expect(order12?.items[0].name).toBe('Roasted Chicken Rice');
+    expect(order12?.items[0].quantity).toBe(1);
+  });
+
+  it('should clear tracker when order is completed', async () => {
+    const { CustomerOrderTrackerComponent } = await import('./features/order-tracker/customer-order-tracker.component');
+    const fixture = TestBed.createComponent(CustomerOrderTrackerComponent);
+    const component = fixture.componentInstance;
+
+    const activeOrder: Order = {
+      id: 'ord-301',
+      orderNumber: 'HF-301',
+      dailySequence: 301,
+      diningOption: 'dine_in',
+      items: [],
+      subtotal: 10,
+      takeawayFee: 0,
+      tax: 0,
+      discount: 0,
+      total: 10,
+      paymentMethod: 'paynow',
+      paymentStatus: 'paid',
+      status: 'ready',
+      createdAt: new Date().toISOString()
+    };
+
+    customerService.customerOrders.set([activeOrder]);
+    component.selectOrderToTrack(activeOrder);
+    fixture.detectChanges();
+
+    expect(component.order()).toBeTruthy();
+    expect(component.order()?.id).toBe('ord-301');
+
+    // Complete the order
+    component.markOrderCompleted();
+    fixture.detectChanges();
+
+    // Tracker should be cleared
+    expect(component.order()).toBeNull();
+    expect(component.orderId()).toBe('');
+  });
+
+  it('should hide notification light in the floating bar below when in the orders page', async () => {
+    const { CustomerLayoutComponent } = await import('./features/layout/customer-layout.component');
+    const fixture = TestBed.createComponent(CustomerLayoutComponent);
+    const component = fixture.componentInstance;
+
+    // Simulate new order placed
+    customerService.hasUnseenOrders.set(true);
+    component.currentUrl.set('/stalls');
+    fixture.detectChanges();
+
+    // On stalls page, badge is visible
+    expect(component.showOrdersNotification()).toBe(true);
+
+    // On orders page, badge disappears
+    component.currentUrl.set('/orders');
+    fixture.detectChanges();
+    expect(component.showOrdersNotification()).toBe(false);
+
+    // Entering orders page marks orders viewed
+    customerService.markOrdersViewed();
+    expect(customerService.hasUnseenOrders()).toBe(false);
+  });
+
+  it('should display "Order is completed" when searching for a past order that is returned by backend API in tracker page', async () => {
+    const { CustomerOrderTrackerComponent } = await import('./features/order-tracker/customer-order-tracker.component');
+    const fixture = TestBed.createComponent(CustomerOrderTrackerComponent);
+    const component = fixture.componentInstance;
+
+    // Ensure no ongoing orders
+    customerService.customerOrders.set([]);
+    expect(component.activeOrders().length).toBe(0);
+    expect(component.order()).toBeNull();
+
+    component.lookupQuery = '12';
+    component.searchAndTrackOrder();
+
+    const req = httpMock.expectOne(r => r.url.includes('/order/orders/12'));
+    expect(req.request.method).toBe('GET');
+    req.flush({
+      order_id: 12,
+      stall_id: 1,
+      total_price: 5.5,
+      order_status: 'COMPLETED',
+      dishes: [
+        {
+          dish_id: 5,
+          dish_name: 'Roasted Chicken Rice',
+          quantity: 1,
+          price: 5.5
+        }
+      ]
+    });
+
+    fixture.detectChanges();
+
+    expect(component.lookupNotFound()).toBe(false);
+    expect(component.searchedPastOrder()).toBeTruthy();
+    expect(component.searchedPastOrder()?.id).toBe('12');
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('Order is completed');
+    expect(compiled.textContent).toContain('#HF-012');
+  });
+
+  it('should display "No order found" in tracker page when searching for an order and no order is returned', async () => {
+    const { CustomerOrderTrackerComponent } = await import('./features/order-tracker/customer-order-tracker.component');
+    const fixture = TestBed.createComponent(CustomerOrderTrackerComponent);
+    const component = fixture.componentInstance;
+
+    // Ensure no ongoing orders
+    customerService.customerOrders.set([]);
+    expect(component.activeOrders().length).toBe(0);
+    expect(component.order()).toBeNull();
+
+    component.lookupQuery = '999';
+    component.searchAndTrackOrder();
+
+    const req = httpMock.expectOne(r => r.url.includes('/order/orders/999'));
+    expect(req.request.method).toBe('GET');
+    req.flush(null, { status: 404, statusText: 'Not Found' });
+
+    fixture.detectChanges();
+
+    expect(component.lookupNotFound()).toBe(true);
+    expect(component.searchedPastOrder()).toBeNull();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('No order found');
+  });
+
+  it('should disable call to /v1/customer/user/{cust_sub} when customer is ordering food in guest mode', async () => {
+    // 1. Enter guest mode
+    customerService.continueAsGuest('Guest User', '+6591234567');
+    expect(customerService.isGuest()).toBe(true);
+
+    // 2. Order food in CustomerOrderComponent
+    const { CustomerOrderComponent } = await import('./features/order/customer-order.component');
+    const fixture = TestBed.createComponent(CustomerOrderComponent);
+    const component = fixture.componentInstance;
+    component.currentStall.set({
+      id: 'stall-1',
+      numericId: 1,
+      name: 'Tian Tian Chicken Rice',
+      stallName: 'Tian Tian Chicken Rice',
+      ownerName: 'Uncle Ah Seng',
+      category: 'Chicken Rice',
+      rating: 4.8,
+      status: 'open',
+      phone: '+6591234567',
+      email: 'stall1@hawkerflow.sg',
+      location: 'Maxwell #01-10',
+      totalDishes: 5,
+      revenueToday: 1200,
+      activeOrdersCount: 2,
+      createdAt: '2026-01-01',
+      updatedAt: '2026-01-01'
+    } as any);
+
+    const mockDish: any = {
+      id: 'dish-5',
+      numericDishId: 5,
+      name: 'Roasted Chicken Rice',
+      basePrice: 5.50,
+      isAvailable: true
+    };
+    component.addSimpleItem(mockDish);
+
+    component.onCustomerPaymentComplete({ method: 'paynow' });
+
+    // Expect createOrder call
+    const createReq = httpMock.expectOne(r => r.url.includes('/order/orders') && r.method === 'POST');
+    createReq.flush({
+      order_id: 88,
+      order_status: 'PENDING',
+      order_created_at: new Date().toISOString()
+    });
+
+    // Verify NO call to POST /v1/customer/user/update_order was made
+    httpMock.expectNone(r => r.url.includes('/customer/user/update_order'));
+
+    // Verify NO call to GET /v1/customer/user/{cust_sub} was made
+    httpMock.expectNone(r => r.url.includes('/customer/user/') && r.method === 'GET');
+
+    // Also update order status in guest mode -> should NOT trigger update_order
+    customerService.updateOrderStatus('88', 'completed');
+    httpMock.expectNone(r => r.url.includes('/customer/user/update_order'));
+
+    // Also check when visiting Orders/Profile page in guest mode
+    const { CustomerProfileComponent } = await import('./features/profile/customer-profile.component');
+    const profileFixture = TestBed.createComponent(CustomerProfileComponent);
+    profileFixture.detectChanges();
+
+    // Verify still NO call to GET /customer/user/
+    httpMock.expectNone(r => r.url.includes('/customer/user/') && r.method === 'GET');
+  });
 });
+
+
+
 

@@ -2,10 +2,19 @@ import { Injectable, signal, computed, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { Observable, of, tap, catchError, map, switchMap } from 'rxjs';
 import { CustomerUser, CustomerVoucher, CustomerStampCard, CustomerTier } from '../models/customer.model';
-import { Order, OrderStatus } from '../models/order.model';
+import { Order, OrderItem, OrderStatus } from '../models/order.model';
 import { CognitoService } from './cognito.service';
 import { HawkerApiService } from './hawker-api.service';
-import { BackendCustomerRegisterPayload, BackendCheckAccountPayload } from '../models/hawker-api.model';
+import {
+  BackendCustomerRegisterPayload,
+  BackendCheckAccountPayload,
+  BackendUpdateCustomerOrderPayload,
+  BackendDishOrder,
+  BackendStallOrder,
+  BackendCustomerDetailResponse,
+  BackendPastOrderDish,
+  BackendPastOrdersWrapper
+} from '../models/hawker-api.model';
 
 @Injectable({
   providedIn: 'root'
@@ -20,6 +29,7 @@ export class CustomerService {
   readonly stampCards = signal<CustomerStampCard[]>([]);
   readonly appliedVoucher = signal<CustomerVoucher | null>(null);
   readonly customerOrders = signal<Order[]>([]);
+  readonly hasUnseenOrders = signal<boolean>(false);
 
   readonly isAuthenticated = computed(() => {
     const cust = this.currentCustomer();
@@ -68,13 +78,30 @@ export class CustomerService {
     if (!term) return of({ success: false, error: 'Identifier required' });
 
     return this.cognitoService.signIn(term, password).pipe(
-      map(res => {
-        if (!res.success && res.error) {
-          return { success: false, error: res.error };
+      switchMap(res => {
+        if (!res.success || !res.isSignedIn) {
+          if (res.requiresMfa) {
+            return of({
+              success: true,
+              requiresMfa: true,
+              isSignedIn: false,
+              nextStep: res.nextStep,
+              codeDeliveryDetails: res.codeDeliveryDetails
+            });
+          }
+          return of({
+            success: false,
+            isSignedIn: false,
+            error: res.error || 'Login failed. Please check your username and password.'
+          });
         }
 
+        const custSub = res.userSub || res.user?.userId || res.user?.sub || term;
+
         const user: CustomerUser = {
-          id: res.user?.userId || 'cust-' + Date.now(),
+          id: custSub,
+          cognitoSub: custSub,
+          cognitoUsername: term,
           name: term.includes('@') ? term.split('@')[0] : 'Diner ' + term.slice(-4),
           email: term.includes('@') ? term : undefined,
           phone: !term.includes('@') ? term : undefined,
@@ -87,50 +114,76 @@ export class CustomerService {
           idToken: res.tokens?.idToken
         };
 
-        if (res.isSignedIn) {
-          this.currentCustomer.set(user);
-          this.router.navigate(['/stalls']);
-          return {
-            success: true,
-            requiresMfa: false,
-            isSignedIn: true,
-            user
-          };
-        }
-
-        // MFA or additional challenge required
-        return {
-          success: true,
-          requiresMfa: true,
-          isSignedIn: false,
-          nextStep: res.nextStep,
-          codeDeliveryDetails: res.codeDeliveryDetails,
-          user
-        };
+        // Fetch customer details from endpoint: /customer/user/{cust_sub}
+        return this.hawkerApiService.getCustomerDetails(custSub).pipe(
+          map(detail => {
+            if (detail) {
+              if (detail.cust_id || detail.customer_id) {
+                user.id = detail.cust_id || detail.customer_id || user.id;
+              }
+              if (detail.cust_name || detail.customer_name) {
+                user.name = detail.cust_name || detail.customer_name || user.name;
+              }
+              if (detail.last_login) {
+                user.lastLogin = detail.last_login;
+              }
+              if (detail.email) {
+                user.email = detail.email;
+              }
+              if (detail.phone_number) {
+                user.phone = detail.phone_number;
+              }
+              if (detail.past_orders) {
+                const mappedOrders = this.mapPastOrders(detail.past_orders);
+                this.customerOrders.set(mappedOrders);
+              }
+            }
+            this.currentCustomer.set(user);
+            this.router.navigate(['/stalls']);
+            return {
+              success: true,
+              requiresMfa: false,
+              isSignedIn: true,
+              user
+            };
+          }),
+          catchError(() => {
+            this.currentCustomer.set(user);
+            this.router.navigate(['/stalls']);
+            return of({
+              success: true,
+              requiresMfa: false,
+              isSignedIn: true,
+              user
+            });
+          })
+        );
       }),
       catchError(err => {
         const errorMsg = err?.message || 'Login failed';
-        return of({ success: false, error: errorMsg });
+        return of({ success: false, isSignedIn: false, error: errorMsg });
       })
     );
   }
 
-  confirmMfa(code: string, userDetails?: { identifier?: string; name?: string }): Observable<{
+  confirmMfa(code: string, userDetails?: { identifier?: string; name?: string; sub?: string }): Observable<{
     success: boolean;
     isSignedIn?: boolean;
     user?: CustomerUser;
     error?: string;
   }> {
     return this.cognitoService.confirmSignIn(code).pipe(
-      map(res => {
+      switchMap(res => {
         if (!res.success && res.error) {
-          return { success: false, error: res.error };
+          return of({ success: false, error: res.error });
         }
 
         if (res.isSignedIn) {
           const term = userDetails?.identifier || 'User';
+          const custSub = res.userSub || res.user?.userId || userDetails?.sub || term;
           const user: CustomerUser = {
-            id: res.user?.userId || 'cust-' + Date.now(),
+            id: custSub,
+            cognitoSub: custSub,
             name: userDetails?.name || (term.includes('@') ? term.split('@')[0] : 'Diner ' + term.slice(-4)),
             email: term.includes('@') ? term : undefined,
             phone: !term.includes('@') ? term : undefined,
@@ -142,12 +195,43 @@ export class CustomerService {
             accessToken: res.tokens?.accessToken,
             idToken: res.tokens?.idToken
           };
-          this.currentCustomer.set(user);
-          this.router.navigate(['/stalls']);
-          return { success: true, isSignedIn: true, user };
+
+          return this.hawkerApiService.getCustomerDetails(custSub).pipe(
+            map(detail => {
+              if (detail) {
+                if (detail.cust_id || detail.customer_id) {
+                  user.id = detail.cust_id || detail.customer_id || user.id;
+                }
+                if (detail.cust_name || detail.customer_name) {
+                  user.name = detail.cust_name || detail.customer_name || user.name;
+                }
+                if (detail.last_login) {
+                  user.lastLogin = detail.last_login;
+                }
+                if (detail.email) {
+                  user.email = detail.email;
+                }
+                if (detail.phone_number) {
+                  user.phone = detail.phone_number;
+                }
+                if (detail.past_orders) {
+                  const mappedOrders = this.mapPastOrders(detail.past_orders);
+                  this.customerOrders.set(mappedOrders);
+                }
+              }
+              this.currentCustomer.set(user);
+              this.router.navigate(['/stalls']);
+              return { success: true, isSignedIn: true, user };
+            }),
+            catchError(() => {
+              this.currentCustomer.set(user);
+              this.router.navigate(['/stalls']);
+              return of({ success: true, isSignedIn: true, user });
+            })
+          );
         }
 
-        return { success: false, error: 'MFA Verification was not completed' };
+        return of({ success: false, error: 'MFA Verification was not completed' });
       }),
       catchError(err => of({ success: false, error: err?.message || 'MFA confirmation failed' }))
     );
@@ -167,6 +251,8 @@ export class CustomerService {
     requiresMfa?: boolean;
     requiresConfirmation?: boolean;
     isSignUpComplete?: boolean;
+    userSub?: string;
+    customerSub?: string;
     username?: string;
     user?: CustomerUser;
     nextStep?: any;
@@ -175,7 +261,7 @@ export class CustomerService {
   }> {
     const rawPhone = data.phone.trim();
     const username = rawPhone;
-    
+
     // Parse first name & last name
     let firstName = data.firstName?.trim() || '';
     let lastName = data.lastName?.trim() || '';
@@ -253,18 +339,21 @@ export class CustomerService {
               return of({ success: false, error: res.error });
             }
 
+            const customerSub = res.userSub || newUser.cognitoSub || newUser.id;
             if (res.userSub) {
               newUser.id = res.userSub;
               newUser.cognitoSub = res.userSub;
             }
 
             if (res.isSignUpComplete) {
-              // Forward customer details to Backend Customer Service (localhost:8081) only when registration completes
+              // Forward customer details to Backend Customer Service (localhost:8081) only when registration completes, including customer sub
               const backendPayload: BackendCustomerRegisterPayload = {
                 first_name: firstName,
                 last_name: lastName,
                 email,
-                phone_number: rawPhone
+                phone_number: rawPhone,
+                customer_sub: customerSub,
+                sub: customerSub
               };
               this.hawkerApiService.registerCustomer(backendPayload).pipe(
                 catchError(() => of(null))
@@ -276,6 +365,7 @@ export class CustomerService {
                 success: true,
                 requiresConfirmation: false,
                 isSignUpComplete: true,
+                userSub: customerSub,
                 user: newUser
               });
             }
@@ -285,6 +375,7 @@ export class CustomerService {
               success: true,
               requiresConfirmation: true,
               isSignUpComplete: false,
+              userSub: customerSub,
               username,
               user: newUser,
               codeDeliveryDetails: res.codeDeliveryDetails
@@ -328,7 +419,7 @@ export class CustomerService {
   confirmRegistrationCode(
     username: string,
     code: string,
-    userDetails?: { name?: string; firstName?: string; lastName?: string; phone?: string; email?: string }
+    userDetails?: { name?: string; firstName?: string; lastName?: string; phone?: string; email?: string; sub?: string; customer_sub?: string }
   ): Observable<{
     success: boolean;
     isSignUpComplete?: boolean;
@@ -355,20 +446,23 @@ export class CustomerService {
         const fullName = `${firstName} ${lastName}`.trim();
         const rawPhone = userDetails?.phone || username;
         const email = userDetails?.email?.trim() || `${rawPhone.replace(/\D/g, '')}@example.com`;
+        const customerSub = userDetails?.customer_sub || userDetails?.sub || 'sub-' + Date.now();
 
-        // Forward to backend customer service if not sent already with string phone_number
+        // Forward to backend customer service if not sent already with string phone_number and customer_sub
         const backendPayload: BackendCustomerRegisterPayload = {
           first_name: firstName,
           last_name: lastName,
           email,
-          phone_number: rawPhone
+          phone_number: rawPhone,
+          customer_sub: customerSub,
+          sub: customerSub
         };
         this.hawkerApiService.registerCustomer(backendPayload).pipe(
           catchError(() => of(null))
         ).subscribe();
 
         const confirmedUser: CustomerUser = {
-          id: 'cust-' + Date.now(),
+          id: customerSub,
           name: fullName,
           email: userDetails?.email,
           phone: rawPhone,
@@ -377,7 +471,8 @@ export class CustomerService {
           tier: 'Bronze Kaki',
           avatarEmoji: '🥢',
           registeredAt: new Date().toISOString(),
-          cognitoUsername: username
+          cognitoUsername: username,
+          cognitoSub: customerSub
         };
         this.currentCustomer.set(confirmedUser);
         this.router.navigate(['/stalls']);
@@ -396,11 +491,17 @@ export class CustomerService {
     this.currentCustomer.set(null);
     this.appliedVoucher.set(null);
     this.customerOrders.set([]);
+    this.hasUnseenOrders.set(false);
     this.router.navigate(['/auth']);
   }
 
   clearCustomerOrders(): void {
     this.customerOrders.set([]);
+    this.hasUnseenOrders.set(false);
+  }
+
+  markOrdersViewed(): void {
+    this.hasUnseenOrders.set(false);
   }
 
   applyVoucher(voucher: CustomerVoucher): void {
@@ -414,6 +515,10 @@ export class CustomerService {
   recordCustomerOrder(order: Order, stallId: string, stallName: string, stallEmoji: string): void {
     // Save to customer's order history
     this.customerOrders.update(orders => [order, ...orders]);
+    this.hasUnseenOrders.set(true);
+
+    // Send POST /v1/customer/user/update_order upon successful payment / order placement
+    this.syncCustomerOrder(order, stallId);
 
     const cust = this.currentCustomer();
     if (!cust || cust.isGuest) return;
@@ -421,7 +526,7 @@ export class CustomerService {
     // 1 Point per $1 spent
     const pointsEarned = Math.floor(order.total);
     const newTotalPoints = cust.loyaltyPoints + pointsEarned;
-    
+
     // Tier calculation
     let newTier: CustomerTier = 'Bronze Kaki';
     if (newTotalPoints >= 300) newTier = 'Gold Kaki';
@@ -519,10 +624,15 @@ export class CustomerService {
     return true;
   }
 
+  /**
+   * Updates order status and synchronizes the change to backend Customer Service:
+   * POST http://localhost:8081/hawkerflow/v1/customer/user/update_order
+   */
   updateOrderStatus(orderId: string | number, status: OrderStatus): void {
     const idStr = String(orderId);
     const numId = Number(orderId);
     const now = new Date().toISOString();
+    let updatedOrder: Order | null = null;
 
     this.customerOrders.update(orders =>
       orders.map(o => {
@@ -536,10 +646,250 @@ export class CustomerService {
           } else if (status === 'preparing' && !o.startedPrepAt) {
             updated.startedPrepAt = now;
           }
+          updatedOrder = updated;
           return updated;
         }
         return o;
       })
     );
+
+    // Send POST /v1/customer/user/update_order on order state change
+    if (updatedOrder) {
+      this.syncCustomerOrder(updatedOrder);
+    } else {
+      const fallbackOrder: Order = {
+        id: idStr,
+        orderNumber: `HF-${idStr.padStart(3, '0')}`,
+        dailySequence: numId || 0,
+        diningOption: 'dine_in',
+        items: [],
+        subtotal: 0,
+        takeawayFee: 0,
+        tax: 0,
+        discount: 0,
+        total: 0,
+        paymentMethod: 'paynow',
+        paymentStatus: 'paid',
+        status,
+        createdAt: now
+      };
+      this.syncCustomerOrder(fallbackOrder);
+    }
+  }
+
+  /**
+   * Sends POST http://localhost:8081/hawkerflow/v1/customer/user/update_order
+   * with the exact requested payload structure:
+   * {
+   *   "order_id": 0,
+   *   "cust_sub": "string",
+   *   "orders": [
+   *     {
+   *       "stall_id": 0,
+   *       "dishes": [
+   *         {
+   *           "dish_id": 0,
+   *           "quantity": 0,
+   *           "price": 0
+   *         }
+   *       ]
+   *     }
+   *   ],
+   *   "total_price": 0,
+   *   "status": "string"
+   * }
+   */
+  syncCustomerOrder(order: Order, stallId?: string | number): void {
+    const cust = this.currentCustomer();
+    if (!cust || cust.isGuest || cust.id?.startsWith('guest') || cust.cognitoSub === 'guest') {
+      return;
+    }
+    const custSub = cust.cognitoSub || cust.id;
+    if (!custSub || custSub === 'guest' || custSub.startsWith('guest')) {
+      return;
+    }
+    const numOrderId = Number(order.dailySequence ?? parseInt(String(order.id).replace(/\D/g, ''), 10) ?? 0) || 0;
+
+    const parsedStallId = Number(
+      order.numericStallId ??
+      (stallId !== undefined && stallId !== null ? parseInt(String(stallId).replace(/\D/g, ''), 10) : 1) ??
+      1
+    ) || 1;
+
+    let dishes: BackendDishOrder[] = [];
+    if (order.items && order.items.length > 0) {
+      dishes = order.items.map(item => ({
+        dish_id: Number(item.numericDishId ?? parseInt(String(item.menuItemId).replace(/\D/g, ''), 10) ?? 1) || 1,
+        dish_name: item.name,
+        quantity: Number(item.quantity) || 1,
+        price: Number(item.totalPrice ?? item.unitPriceWithModifiers ?? 0)
+      }));
+    } else {
+      dishes = [
+        {
+          dish_id: 1,
+          dish_name: '',
+          quantity: 1,
+          price: Number(order.total) || 0
+        }
+      ];
+    }
+
+    const payload: BackendUpdateCustomerOrderPayload = {
+      order_id: numOrderId,
+      cust_sub: custSub,
+      orders: [
+        {
+          stall_id: parsedStallId,
+          dishes
+        }
+      ],
+      total_price: Number(order.total) || 0,
+      status: order.status
+    };
+
+    this.hawkerApiService.updateCustomerOrder(payload).pipe(
+      catchError(() => of(null))
+    ).subscribe();
+  }
+
+  /**
+   * Refreshes customer profile details and past orders from backend
+   * GET /v1/customer/user/{cust_sub}
+   */
+  refreshCustomerDetails(): Observable<BackendCustomerDetailResponse | null> {
+    const cust = this.currentCustomer();
+    if (!cust || cust.isGuest || cust.id?.startsWith('guest') || cust.cognitoSub === 'guest') {
+      return of(null);
+    }
+    const custSub = cust.cognitoSub || cust.id;
+    if (!custSub || custSub.startsWith('guest')) return of(null);
+
+    return this.hawkerApiService.getCustomerDetails(custSub).pipe(
+      tap(detail => {
+        if (detail) {
+          let updated = false;
+          if ((detail.cust_id || detail.customer_id) && cust.id !== (detail.cust_id || detail.customer_id)) {
+            cust.id = detail.cust_id || detail.customer_id || cust.id;
+            updated = true;
+          }
+          if ((detail.cust_name || detail.customer_name) && cust.name !== (detail.cust_name || detail.customer_name)) {
+            cust.name = detail.cust_name || detail.customer_name || cust.name;
+            updated = true;
+          }
+          if (detail.last_login && cust.lastLogin !== detail.last_login) {
+            cust.lastLogin = detail.last_login;
+            updated = true;
+          }
+          if (detail.email && cust.email !== detail.email) {
+            cust.email = detail.email;
+            updated = true;
+          }
+          if (detail.phone_number && cust.phone !== detail.phone_number) {
+            cust.phone = detail.phone_number;
+            updated = true;
+          }
+          if (updated) {
+            this.currentCustomer.set({ ...cust });
+          }
+
+          if (detail.past_orders) {
+            const mappedOrders = this.mapPastOrders(detail.past_orders);
+            this.customerOrders.set(mappedOrders);
+          }
+        }
+      }),
+      catchError(() => of(null))
+    );
+  }
+
+  /**
+   * Groups dishes by order_id from backend past_orders response and maps them into Order objects
+   */
+  mapPastOrders(pastOrdersData: BackendPastOrdersWrapper | BackendPastOrderDish[] | any): Order[] {
+    if (!pastOrdersData) return [];
+
+    let rawDishes: BackendPastOrderDish[] = [];
+    if (Array.isArray(pastOrdersData)) {
+      rawDishes = pastOrdersData;
+    } else if (pastOrdersData && Array.isArray(pastOrdersData.orders)) {
+      rawDishes = pastOrdersData.orders;
+    } else {
+      return [];
+    }
+
+    if (rawDishes.length === 0) return [];
+
+    // Group dishes by order_id
+    const orderGroups = new Map<number, BackendPastOrderDish[]>();
+    for (const dish of rawDishes) {
+      const orderId = Number(dish.order_id) || 0;
+      if (!orderGroups.has(orderId)) {
+        orderGroups.set(orderId, []);
+      }
+      orderGroups.get(orderId)!.push(dish);
+    }
+
+    const mappedOrders: Order[] = [];
+
+    for (const [orderId, dishes] of orderGroups.entries()) {
+      const firstDish = dishes[0];
+      const totalPrice = dishes.reduce((sum, d) => sum + (Number(d.order_price) || 0), 0);
+      const status = this.normalizeOrderStatus(firstDish?.order_status);
+
+      const items: OrderItem[] = dishes.map((d, idx) => {
+        const dishId = d.dish_id;
+        const qty = Number(d.quantity) || 1;
+        const price = Number(d.order_price) || 0;
+        const unitPrice = qty > 0 ? Number((price / qty).toFixed(2)) : price;
+
+        return {
+          id: `item-${orderId}-${dishId}-${idx}`,
+          menuItemId: String(dishId),
+          numericDishId: Number(dishId),
+          name: d.dish_name || `Dish #${dishId}`,
+          basePrice: unitPrice,
+          quantity: qty,
+          selectedModifiers: [],
+          unitPriceWithModifiers: unitPrice,
+          totalPrice: price
+        };
+      });
+
+      const createdAt = firstDish.order_created_at || firstDish.created_at || new Date().toISOString();
+
+      const order: Order = {
+        id: String(orderId),
+        orderNumber: `HF-${String(orderId).padStart(3, '0')}`,
+        dailySequence: orderId,
+        diningOption: 'dine_in',
+        items,
+        subtotal: Number(totalPrice.toFixed(2)),
+        takeawayFee: 0,
+        tax: 0,
+        discount: 0,
+        total: Number(totalPrice.toFixed(2)),
+        paymentMethod: 'paynow',
+        paymentStatus: 'paid',
+        status,
+        createdAt,
+        ...(status === 'completed' ? { completedAt: createdAt } : {})
+      };
+
+      mappedOrders.push(order);
+    }
+
+    // Sort descending by order_id (latest order first)
+    return mappedOrders.sort((a, b) => b.dailySequence - a.dailySequence);
+  }
+
+  private normalizeOrderStatus(statusStr?: string): OrderStatus {
+    const s = (statusStr || '').toLowerCase().trim();
+    if (s === 'completed' || s === 'collected') return 'completed';
+    if (s === 'ready') return 'ready';
+    if (s === 'preparing' || s === 'accepted' || s === 'cooking') return 'preparing';
+    if (s === 'cancelled' || s === 'canceled') return 'cancelled';
+    return 'pending';
   }
 }
+

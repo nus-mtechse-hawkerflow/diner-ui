@@ -42,6 +42,7 @@ export class CustomerAuthComponent {
   pendingName = '';
   pendingPhone = '';
   pendingEmail = '';
+  pendingUserSub = '';
   mfaDestination = '';
   mfaDeliveryMedium = 'SMS';
 
@@ -119,6 +120,10 @@ export class CustomerAuthComponent {
           return;
         }
 
+        if (res.userSub || res.user?.cognitoSub) {
+          this.pendingUserSub = res.userSub || res.user?.cognitoSub || '';
+        }
+
         if (res.requiresMfa) {
           this.pendingUsername = this.regPhone;
           this.confirmationCode = '';
@@ -161,7 +166,9 @@ export class CustomerAuthComponent {
         lastName: this.pendingLastName,
         name: this.pendingName,
         phone: this.pendingPhone,
-        email: this.pendingEmail
+        email: this.pendingEmail,
+        customer_sub: this.pendingUserSub,
+        sub: this.pendingUserSub
       }
     ).subscribe({
       next: (res) => {

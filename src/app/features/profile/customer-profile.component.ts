@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { IconComponent } from '../../shared/components/icon/icon.component';
@@ -14,7 +14,7 @@ import { Order } from '../../core/models/order.model';
   imports: [CommonModule, RouterLink, IconComponent, ReceiptModalComponent],
   templateUrl: './customer-profile.component.html',
 })
-export class CustomerProfileComponent {
+export class CustomerProfileComponent implements OnInit {
   private customerService = inject(CustomerService);
   private orderService = inject(OrderService);
   private audioService = inject(AudioService);
@@ -25,6 +25,13 @@ export class CustomerProfileComponent {
   customerOrders = this.customerService.customerOrders;
 
   selectedOrderForReceipt = signal<Order | null>(null);
+
+  ngOnInit(): void {
+    this.customerService.markOrdersViewed();
+    if (!this.isGuest()) {
+      this.customerService.refreshCustomerDetails().subscribe();
+    }
+  }
 
   formatOrderDate(isoDate: string): string {
     try {

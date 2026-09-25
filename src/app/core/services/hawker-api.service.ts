@@ -1,12 +1,14 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, map } from 'rxjs';
+import { Observable, of, map } from 'rxjs';
 import {
   BackendCreateOrderPayload,
   BackendCreateOrderResponse,
   BackendCustomerRegisterPayload,
   BackendCheckAccountPayload,
   BackendCheckAccountResponse,
+  BackendCustomerDetailResponse,
+  BackendUpdateCustomerOrderPayload,
   BackendStallItem,
   BackendStallsResponse
 } from '../models/hawker-api.model';
@@ -18,12 +20,42 @@ export const HAWKER_STALLS_API_URL = 'http://localhost:8080/hawkerflow/v1/hawker
 export const ORDER_SUBMIT_API_URL = 'http://localhost:8082/hawkerflow/v1/order/orders';
 export const CUSTOMER_REGISTER_API_URL = 'http://localhost:8081/hawkerflow/v1/customer/register';
 export const CUSTOMER_CHECK_ACCOUNT_API_URL = 'http://localhost:8081/hawkerflow/v1/customer/check_account_exist';
+export const CUSTOMER_USER_API_BASE_URL = 'http://localhost:8081/hawkerflow/v1/customer/user';
+export const CUSTOMER_UPDATE_ORDER_API_URL = 'http://localhost:8081/hawkerflow/v1/customer/user/update_order';
 
 @Injectable({
   providedIn: 'root'
 })
 export class HawkerApiService {
   private http = inject(HttpClient);
+
+  /**
+   * Update customer order status and details in backend Customer Service.
+   * POST http://localhost:8081/hawkerflow/v1/customer/user/update_order
+   */
+  updateCustomerOrder(payload: BackendUpdateCustomerOrderPayload): Observable<any> {
+    if (
+      !payload.cust_sub ||
+      payload.cust_sub === 'guest' ||
+      payload.cust_sub.startsWith('guest') ||
+      payload.cust_sub.startsWith('cust-guest')
+    ) {
+      return of(null);
+    }
+    return this.http.post<any>(CUSTOMER_UPDATE_ORDER_API_URL, payload);
+  }
+
+  /**
+   * Get customer details by customer sub from backend Customer Service.
+   * GET http://localhost:8081/hawkerflow/v1/customer/user/{cust_sub}
+   */
+  getCustomerDetails(custSub: string): Observable<BackendCustomerDetailResponse> {
+    if (!custSub || custSub === 'guest' || custSub.startsWith('guest-') || custSub.startsWith('cust-guest')) {
+      return of({} as BackendCustomerDetailResponse);
+    }
+    const url = `${CUSTOMER_USER_API_BASE_URL}/${encodeURIComponent(custSub)}`;
+    return this.http.get<BackendCustomerDetailResponse>(url);
+  }
 
   /**
    * Checks if an account already exists with the given phone number or email.

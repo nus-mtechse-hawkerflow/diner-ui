@@ -32,12 +32,15 @@ export class CustomerOrderTrackerComponent implements OnInit, OnDestroy {
   stallEmoji = signal<string>('🍲');
 
   showReceiptModal = signal<boolean>(false);
+  selectedPastOrderForReceipt = signal<Order | null>(null);
   stepLevel = signal<number>(1); // 1 = Received, 2 = Cooking, 3 = Ready, 4 = Completed
   estimatedMinutes = signal<number>(6);
   currentStatus = signal<OrderStatus>('pending');
 
   lookupQuery = '';
+  isSearching = signal<boolean>(false);
   lookupNotFound = signal<boolean>(false);
+  searchedPastOrder = signal<Order | null>(null);
 
   readonly allCustomerOrders = this.customerService.customerOrders;
   readonly activeOrders = this.customerService.activeCustomerOrders;
@@ -60,11 +63,13 @@ export class CustomerOrderTrackerComponent implements OnInit, OnDestroy {
         const actives = this.activeOrders();
         if (actives.length > 0) {
           this.selectOrderToTrack(actives[0]);
+        }
+      } else if (current.status === 'completed' || current.status === 'cancelled') {
+        const remainingActives = this.activeOrders().filter(o => o.id !== current.id);
+        if (remainingActives.length > 0) {
+          this.selectOrderToTrack(remainingActives[0]);
         } else {
-          const all = this.allCustomerOrders();
-          if (all.length > 0 && !this.orderId()) {
-            this.selectOrderToTrack(all[0]);
-          }
+          this.clearTracker();
         }
       }
     });
@@ -72,7 +77,7 @@ export class CustomerOrderTrackerComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     const navState = history.state;
-    if (navState && navState.order) {
+    if (navState && navState.order && navState.order.status !== 'completed' && navState.order.status !== 'cancelled') {
       this.order.set(navState.order);
       if (navState.stallName) this.stallName.set(navState.stallName);
       if (navState.stallEmoji) this.stallEmoji.set(navState.stallEmoji);
@@ -85,7 +90,12 @@ export class CustomerOrderTrackerComponent implements OnInit, OnDestroy {
         this.orderId.set(id);
         const match = this.allCustomerOrders().find(o => o.id === id || String(o.dailySequence) === id || o.id === 'ord-' + id);
         if (match) {
-          this.selectOrderToTrack(match);
+          if (match.status !== 'completed' && match.status !== 'cancelled') {
+            this.selectOrderToTrack(match);
+          } else {
+            this.searchedPastOrder.set(match);
+            this.clearTracker();
+          }
         } else {
           // Fetch live status from backend API
           this.orderNotificationService.fetchOrderLiveStatus(id).subscribe(backendOrder => {
@@ -114,7 +124,13 @@ export class CustomerOrderTrackerComponent implements OnInit, OnDestroy {
                 status: mapped,
                 createdAt: backendOrder.f_created_at || new Date().toISOString()
               };
-              this.selectOrderToTrack(fetchedOrder);
+
+              if (mapped !== 'completed' && mapped !== 'cancelled') {
+                this.selectOrderToTrack(fetchedOrder);
+              } else {
+                this.searchedPastOrder.set(fetchedOrder);
+                this.clearTracker();
+              }
             }
           });
         }
@@ -123,6 +139,8 @@ export class CustomerOrderTrackerComponent implements OnInit, OnDestroy {
         const actives = this.activeOrders();
         if (actives.length > 0) {
           this.selectOrderToTrack(actives[0]);
+        } else {
+          this.clearTracker();
         }
       }
     });
@@ -139,7 +157,39 @@ export class CustomerOrderTrackerComponent implements OnInit, OnDestroy {
     }
   }
 
+  formatOrderDate(isoDate?: string): string {
+    if (!isoDate) return '';
+    try {
+      const d = new Date(isoDate);
+      return d.toLocaleDateString('en-SG', {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return isoDate;
+    }
+  }
+
+  clearTracker(): void {
+    this.order.set(null);
+    this.orderId.set('');
+  }
+
+  clearLookup(): void {
+    this.lookupQuery = '';
+    this.lookupNotFound.set(false);
+    this.searchedPastOrder.set(null);
+  }
+
   selectOrderToTrack(ord: Order): void {
+    if (ord.status === 'completed' || ord.status === 'cancelled') {
+      this.clearTracker();
+      this.searchedPastOrder.set(ord);
+      return;
+    }
+    this.searchedPastOrder.set(null);
     this.orderId.set(ord.id);
     this.order.set(ord);
     this.applyOrderStatus(ord.status);
@@ -147,54 +197,106 @@ export class CustomerOrderTrackerComponent implements OnInit, OnDestroy {
   }
 
   searchAndTrackOrder(): void {
-    const q = this.lookupQuery.trim().toLowerCase();
+    const q = this.lookupQuery.trim();
     if (!q) return;
 
+    this.isSearching.set(true);
+    const qLower = q.toLowerCase();
+
+    // 1. Check local orders
     const match = this.allCustomerOrders().find(o =>
-      o.id.toLowerCase() === q ||
-      o.orderNumber.toLowerCase().includes(q) ||
-      String(o.dailySequence) === q
+      o.id.toLowerCase() === qLower ||
+      o.orderNumber.toLowerCase().includes(qLower) ||
+      String(o.dailySequence) === qLower ||
+      o.items.some(i => i.name.toLowerCase().includes(qLower))
     );
 
     if (match) {
-      this.selectOrderToTrack(match);
-      this.lookupNotFound.set(false);
-    } else {
-      // Try backend fetch
-      this.orderNotificationService.fetchOrderLiveStatus(q).subscribe(backendOrder => {
-        if (backendOrder) {
-          const rawStatus = (backendOrder.order_status || backendOrder.status || '').toUpperCase();
-          let mapped: OrderStatus = 'pending';
+      this.isSearching.set(false);
+      if (match.status === 'completed' || match.status === 'cancelled') {
+        this.searchedPastOrder.set(match);
+        this.clearTracker();
+        this.lookupNotFound.set(false);
+      } else {
+        this.searchedPastOrder.set(null);
+        this.selectOrderToTrack(match);
+      }
+      return;
+    }
+
+    // 2. Fetch from backend API: GET /hawkerflow/v1/order/orders/{order_id}
+    this.orderNotificationService.fetchOrderLiveStatus(q).subscribe({
+      next: (backendOrder) => {
+        this.isSearching.set(false);
+        if (backendOrder && (backendOrder.order_id !== undefined || backendOrder.f_id !== undefined || backendOrder.id !== undefined)) {
+          const rawStatus = (backendOrder.order_status || backendOrder.status || 'completed').toUpperCase();
+          let mapped: OrderStatus = 'completed';
           if (rawStatus === 'READY') mapped = 'ready';
-          else if (rawStatus === 'PREPARING' || rawStatus === 'ACCEPTED' || rawStatus === 'IN_PROGRESS' || rawStatus === 'COOKING') mapped = 'preparing';
-          else if (rawStatus === 'COMPLETED' || rawStatus === 'COLLECTED') mapped = 'completed';
+          else if (rawStatus === 'PREPARING' || rawStatus === 'ACCEPTED') mapped = 'preparing';
+          else if (rawStatus === 'PENDING') mapped = 'pending';
           else if (rawStatus === 'CANCELLED' || rawStatus === 'REJECTED') mapped = 'cancelled';
+          else mapped = 'completed';
+
+          const orderIdNum = Number(backendOrder.order_id || backendOrder.f_id || backendOrder.id || parseInt(q.replace(/\D/g, ''), 10) || 1);
+          const totalPrice = Number(backendOrder.total_price || backendOrder.f_total_price || backendOrder.order_price || 0);
+
+          let items: any[] = [];
+          if (Array.isArray(backendOrder.dishes)) {
+            items = backendOrder.dishes.map((d: any, idx: number) => ({
+              id: `item-${orderIdNum}-${d.dish_id || idx}`,
+              menuItemId: String(d.dish_id || idx),
+              numericDishId: Number(d.dish_id || idx),
+              name: d.dish_name || `Dish #${d.dish_id || idx}`,
+              basePrice: Number(d.price || d.order_price || 0),
+              quantity: Number(d.quantity || 1),
+              selectedModifiers: [],
+              unitPriceWithModifiers: Number(d.price || d.order_price || 0),
+              totalPrice: Number(d.price || d.order_price || 0)
+            }));
+          }
 
           const fetchedOrder: Order = {
-            id: String(backendOrder.f_id || q),
-            orderNumber: `HF-${String(q).padStart(3, '0')}`,
-            dailySequence: Number(q) || 1,
+            id: String(orderIdNum),
+            orderNumber: `HF-${String(orderIdNum).padStart(3, '0')}`,
+            dailySequence: orderIdNum,
             diningOption: 'dine_in',
             tableOrBuzzerNumber: 'Dine-In',
-            items: [],
-            subtotal: Number(backendOrder.f_total_price) || 0,
+            items,
+            subtotal: totalPrice,
             takeawayFee: 0,
             tax: 0,
             discount: 0,
-            total: Number(backendOrder.f_total_price) || 0,
+            total: totalPrice,
             paymentMethod: 'paynow',
             paymentStatus: 'paid',
             status: mapped,
-            createdAt: backendOrder.f_created_at || new Date().toISOString()
+            createdAt: backendOrder.order_created_at || backendOrder.created_at || new Date().toISOString()
           };
-          this.selectOrderToTrack(fetchedOrder);
-          this.customerService.customerOrders.update(list => [fetchedOrder, ...list]);
-          this.lookupNotFound.set(false);
+
+          this.customerService.customerOrders.update(list => {
+            const exists = list.some(o => o.id === fetchedOrder.id);
+            return exists ? list : [fetchedOrder, ...list];
+          });
+
+          if (mapped === 'completed' || mapped === 'cancelled') {
+            this.searchedPastOrder.set(fetchedOrder);
+            this.clearTracker();
+            this.lookupNotFound.set(false);
+          } else {
+            this.searchedPastOrder.set(null);
+            this.selectOrderToTrack(fetchedOrder);
+          }
         } else {
+          this.searchedPastOrder.set(null);
           this.lookupNotFound.set(true);
         }
-      });
-    }
+      },
+      error: () => {
+        this.isSearching.set(false);
+        this.searchedPastOrder.set(null);
+        this.lookupNotFound.set(true);
+      }
+    });
   }
 
   markOrderCompleted(): void {
@@ -203,8 +305,15 @@ export class CustomerOrderTrackerComponent implements OnInit, OnDestroy {
 
     this.customerService.updateOrderStatus(current.id, 'completed');
     this.orderService.updateOrderStatus(current.id, 'completed');
-    this.applyOrderStatus('completed');
     this.audioService.playTicketBumped();
+
+    // Clear tracker when order is completed
+    this.clearTracker();
+
+    const remainingActives = this.activeOrders().filter(o => o.id !== current.id);
+    if (remainingActives.length > 0) {
+      this.selectOrderToTrack(remainingActives[0]);
+    }
   }
 
   private handleStatusEvent(event: OrderStatusEvent): void {
@@ -221,6 +330,16 @@ export class CustomerOrderTrackerComponent implements OnInit, OnDestroy {
   private applyOrderStatus(status: OrderStatus): void {
     this.currentStatus.set(status);
 
+    if (status === 'completed' || status === 'cancelled') {
+      const currentId = this.orderId();
+      this.clearTracker();
+      const remainingActives = this.activeOrders().filter(o => o.id !== currentId);
+      if (remainingActives.length > 0) {
+        this.selectOrderToTrack(remainingActives[0]);
+      }
+      return;
+    }
+
     if (status === 'pending') {
       this.stepLevel.set(1);
       this.estimatedMinutes.set(6);
@@ -229,9 +348,6 @@ export class CustomerOrderTrackerComponent implements OnInit, OnDestroy {
       this.estimatedMinutes.set(3);
     } else if (status === 'ready') {
       this.stepLevel.set(3);
-      this.estimatedMinutes.set(0);
-    } else if (status === 'completed') {
-      this.stepLevel.set(4);
       this.estimatedMinutes.set(0);
     }
 

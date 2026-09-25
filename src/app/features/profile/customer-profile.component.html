@@ -14,6 +14,12 @@
           <p class="text-xs text-orange-400 font-mono mt-0.5">
             {{ currentCustomer()?.phone || currentCustomer()?.email || 'Guest Mode' }}
           </p>
+          @if (currentCustomer()?.lastLogin) {
+            <p class="text-[11px] text-slate-400 mt-1 flex items-center gap-1.5 font-medium">
+              <span>🕒 Last Login:</span>
+              <span class="font-mono text-slate-300">{{ currentCustomer()?.lastLogin }}</span>
+            </p>
+          }
         </div>
       </div>
 
@@ -101,7 +107,7 @@
                     'bg-emerald-950/60 text-emerald-300 border border-emerald-800/80': ord.status === 'completed',
                     'bg-rose-950 text-rose-400 border border-rose-800': ord.status === 'cancelled'
                   }">
-                  {{ ord.status === 'ready' ? '🔥 Ready' : (ord.status === 'preparing' ? '👨‍🍳 Cooking' : ord.status) }}
+                  {{ ord.status === 'ready' ? '🔥 Ready' : (ord.status === 'preparing' ? '👨‍🍳 Cooking' : (ord.status === 'completed' ? 'Order is completed' : ord.status)) }}
                 </span>
               </div>
               <p class="text-xs text-slate-300 line-clamp-1">
@@ -152,7 +158,6 @@
       </div>
     }
   </div>
-
 
   <!-- RECEIPT PREVIEW MODAL -->
   @if (selectedOrderForReceipt()) {

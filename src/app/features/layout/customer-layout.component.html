@@ -128,7 +128,7 @@
     >
       <app-icon name="receipt" [size]="20"></app-icon>
       <span class="text-[10px]">My Orders</span>
-      @if (customerOrders().length > 0) {
+      @if (showOrdersNotification()) {
         <span class="absolute top-0 right-1 w-2 h-2 rounded-full bg-orange-500"></span>
       }
     </a>

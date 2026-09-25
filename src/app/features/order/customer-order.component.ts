@@ -51,17 +51,23 @@ export class CustomerOrderComponent implements OnInit {
   showPaymentModal = signal<boolean>(false);
   isSubmittingOrder = signal<boolean>(false);
 
+  readonly isLoadingStalls = this.authService.isLoadingStalls;
+
   constructor() {
     // When stalls are loaded or updated from backend, refresh current stall info if active
     effect(() => {
       const id = this.stallId();
-      if (id) {
+      const stalls = this.authService.allStalls();
+      if (id && stalls.length > 0) {
         this.loadStallData(id);
       }
     });
   }
 
   ngOnInit(): void {
+    if (this.authService.allStalls().length === 0) {
+      this.authService.loadStallsFromBackend();
+    }
     this.route.paramMap.subscribe(params => {
       const id = params.get('stallId');
       if (id) {
@@ -73,6 +79,8 @@ export class CustomerOrderComponent implements OnInit {
 
   loadStallData(id: string): void {
     const stalls = this.authService.allStalls();
+    if (!stalls || stalls.length === 0) return;
+
     const stall = stalls.find(
       s => s.id === id || String(s.numericId) === id || s.id === `stall-${id}`
     ) || stalls[0];
@@ -110,19 +118,40 @@ export class CustomerOrderComponent implements OnInit {
   }
 
   addSimpleItem(item: MenuItem): void {
-    const orderItem: OrderItem = {
-      id: 'cart-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
-      menuItemId: item.id,
-      numericDishId: item.numericDishId ?? (parseInt(item.id, 10) || undefined),
-      name: item.name,
-      chineseName: item.chineseName,
-      basePrice: item.basePrice,
-      quantity: 1,
-      selectedModifiers: [],
-      unitPriceWithModifiers: item.basePrice,
-      totalPrice: item.basePrice
-    };
-    this.cart.update(list => [...list, orderItem]);
+    const numericDishId = item.numericDishId ?? (parseInt(item.id, 10) || undefined);
+    const existingIndex = this.cart().findIndex(
+      cartItem => (cartItem.menuItemId === item.id || (numericDishId && cartItem.numericDishId === numericDishId)) &&
+        (!cartItem.selectedModifiers || cartItem.selectedModifiers.length === 0) &&
+        !cartItem.specialNotes
+    );
+
+    if (existingIndex > -1) {
+      this.cart.update(list => {
+        const copy = [...list];
+        const existing = copy[existingIndex];
+        const newQty = existing.quantity + 1;
+        copy[existingIndex] = {
+          ...existing,
+          quantity: newQty,
+          totalPrice: Number((newQty * existing.unitPriceWithModifiers).toFixed(2))
+        };
+        return copy;
+      });
+    } else {
+      const orderItem: OrderItem = {
+        id: 'cart-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+        menuItemId: item.id,
+        numericDishId,
+        name: item.name,
+        chineseName: item.chineseName,
+        basePrice: item.basePrice,
+        quantity: 1,
+        selectedModifiers: [],
+        unitPriceWithModifiers: item.basePrice,
+        totalPrice: item.basePrice
+      };
+      this.cart.update(list => [...list, orderItem]);
+    }
   }
 
   onAddCustomizedItem(event: {
@@ -131,22 +160,46 @@ export class CustomerOrderComponent implements OnInit {
     quantity: number;
     specialNotes: string;
   }): void {
-    const modTotal = event.selectedModifiers.reduce((sum, m) => sum + m.priceDelta, 0);
+    const modTotal = (event.selectedModifiers || []).reduce((sum, m) => sum + m.priceDelta, 0);
     const unitPrice = event.item.basePrice + modTotal;
-    const orderItem: OrderItem = {
-      id: 'cart-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
-      menuItemId: event.item.id,
-      numericDishId: event.item.numericDishId ?? (parseInt(event.item.id, 10) || undefined),
-      name: event.item.name,
-      chineseName: event.item.chineseName,
-      basePrice: event.item.basePrice,
-      quantity: event.quantity,
-      selectedModifiers: event.selectedModifiers,
-      unitPriceWithModifiers: unitPrice,
-      totalPrice: unitPrice * event.quantity,
-      specialNotes: event.specialNotes || undefined
-    };
-    this.cart.update(list => [...list, orderItem]);
+    const numericDishId = event.item.numericDishId ?? (parseInt(event.item.id, 10) || undefined);
+    const specialNotes = event.specialNotes?.trim() || '';
+    const modifierKey = (event.selectedModifiers || []).map(m => m.optionId).sort().join('_') + '_' + specialNotes;
+
+    const existingIndex = this.cart().findIndex(cartItem => {
+      const isDishMatch = cartItem.menuItemId === event.item.id || (numericDishId && cartItem.numericDishId === numericDishId);
+      const cartModKey = (cartItem.selectedModifiers || []).map(m => m.optionId).sort().join('_') + '_' + (cartItem.specialNotes?.trim() || '');
+      return isDishMatch && cartModKey === modifierKey;
+    });
+
+    if (existingIndex > -1) {
+      this.cart.update(list => {
+        const copy = [...list];
+        const existing = copy[existingIndex];
+        const newQty = existing.quantity + event.quantity;
+        copy[existingIndex] = {
+          ...existing,
+          quantity: newQty,
+          totalPrice: Number((newQty * unitPrice).toFixed(2))
+        };
+        return copy;
+      });
+    } else {
+      const orderItem: OrderItem = {
+        id: 'cart-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+        menuItemId: event.item.id,
+        numericDishId,
+        name: event.item.name,
+        chineseName: event.item.chineseName,
+        basePrice: event.item.basePrice,
+        quantity: event.quantity,
+        selectedModifiers: event.selectedModifiers || [],
+        unitPriceWithModifiers: unitPrice,
+        totalPrice: Number((unitPrice * event.quantity).toFixed(2)),
+        specialNotes: specialNotes || undefined
+      };
+      this.cart.update(list => [...list, orderItem]);
+    }
   }
 
   updateQuantity(index: number, delta: number): void {
@@ -211,6 +264,7 @@ export class CustomerOrderComponent implements OnInit {
     const stallNumericId = stall.numericId ?? (parseInt(stall.id, 10) || 1);
     const dishes: BackendDishOrder[] = this.cart().map(item => ({
       dish_id: item.numericDishId ?? (parseInt(item.menuItemId, 10) || 1),
+      dish_name: item.name,
       quantity: item.quantity,
       price: Number(item.totalPrice.toFixed(2))
     }));

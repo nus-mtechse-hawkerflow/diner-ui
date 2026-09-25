@@ -1,6 +1,7 @@
-import { Component, inject, computed } from '@angular/core';
+import { Component, inject, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterOutlet, RouterLink, RouterLinkActive, Router } from '@angular/router';
+import { RouterOutlet, RouterLink, RouterLinkActive, Router, NavigationEnd } from '@angular/router';
+import { filter } from 'rxjs';
 import { CustomerService } from '../../core/services/customer.service';
 import { OrderNotificationService } from '../../core/services/order-notification.service';
 import { IconComponent } from '../../shared/components/icon/icon.component';
@@ -28,6 +29,30 @@ export class CustomerLayoutComponent {
   readonly activeOrdersCount = computed(() => this.customerService.activeCustomerOrders().length);
 
   readonly activeToast = this.orderNotificationService.activeToast;
+
+  readonly currentUrl = signal<string>(this.router.url);
+
+  readonly isOrdersPage = computed(() => {
+    const url = this.currentUrl();
+    return url.includes('/orders') || url.includes('/profile');
+  });
+
+  readonly showOrdersNotification = computed(() => {
+    if (this.isOrdersPage()) return false;
+    return this.customerService.hasUnseenOrders();
+  });
+
+  constructor() {
+    this.router.events.pipe(
+      filter((event): event is NavigationEnd => event instanceof NavigationEnd)
+    ).subscribe(event => {
+      const url = event.urlAfterRedirects || event.url;
+      this.currentUrl.set(url);
+      if (url.includes('/orders') || url.includes('/profile')) {
+        this.customerService.markOrdersViewed();
+      }
+    });
+  }
 
   dismissToast(): void {
     this.orderNotificationService.dismissToast();

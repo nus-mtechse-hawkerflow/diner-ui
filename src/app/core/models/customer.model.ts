@@ -10,6 +10,7 @@ export interface CustomerUser {
   tier: CustomerTier;
   avatarEmoji?: string;
   registeredAt: string;
+  lastLogin?: string;
   cognitoSub?: string;
   cognitoUsername?: string;
   accessToken?: string;
