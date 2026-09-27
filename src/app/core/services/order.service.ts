@@ -19,7 +19,6 @@ export class OrderService {
   // Cart State
   readonly cartItems = signal<OrderItem[]>([]);
   readonly diningOption = signal<DiningOption>('dine_in');
-  readonly tableOrBuzzerNumber = signal<string>('');
   readonly orderNotes = signal<string>('');
 
   // Orders State
@@ -164,16 +163,11 @@ export class OrderService {
 
   clearCart(): void {
     this.cartItems.set([]);
-    this.tableOrBuzzerNumber.set('');
     this.orderNotes.set('');
   }
 
   setDiningOption(option: DiningOption): void {
     this.diningOption.set(option);
-  }
-
-  setTableOrBuzzerNumber(value: string): void {
-    this.tableOrBuzzerNumber.set(value);
   }
 
   setOrderNotes(notes: string): void {
@@ -201,7 +195,6 @@ export class OrderService {
       orderNumber: orderNum,
       dailySequence: nextSeq,
       diningOption: this.diningOption(),
-      tableOrBuzzerNumber: this.tableOrBuzzerNumber() || (this.diningOption() === 'dine_in' ? 'Table Walk-in' : 'Takeaway Counter'),
       items: [...this.cartItems()],
       subtotal,
       takeawayFee,

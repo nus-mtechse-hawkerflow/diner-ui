@@ -245,7 +245,6 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
       orderNumber: 'HF-199',
       dailySequence: 199,
       diningOption: 'dine_in',
-      tableOrBuzzerNumber: '14',
       items: [
         {
           id: 'item-1',
@@ -377,7 +376,6 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
       orderNumber: 'HF-101',
       dailySequence: 101,
       diningOption: 'dine_in',
-      tableOrBuzzerNumber: 'Table 12',
       items: [],
       subtotal: 12,
       takeawayFee: 0,
@@ -433,7 +431,6 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
       orderNumber: 'HF-042',
       dailySequence: 42,
       diningOption: 'dine_in',
-      tableOrBuzzerNumber: 'Table 01',
       items: [],
       subtotal: 10,
       takeawayFee: 0,
@@ -485,7 +482,6 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
       orderNumber: 'HF-055',
       dailySequence: 55,
       diningOption: 'dine_in',
-      tableOrBuzzerNumber: 'Table 05',
       items: [],
       subtotal: 15,
       takeawayFee: 0,
@@ -536,7 +532,6 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
       orderNumber: 'HF-088',
       dailySequence: 88,
       diningOption: 'dine_in',
-      tableOrBuzzerNumber: 'Table 08',
       items: [],
       subtotal: 20,
       takeawayFee: 0,
@@ -583,7 +578,6 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
       orderNumber: 'HF-099',
       dailySequence: 99,
       diningOption: 'dine_in',
-      tableOrBuzzerNumber: 'Table 09',
       items: [],
       subtotal: 15,
       takeawayFee: 0,
@@ -1444,6 +1438,51 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     expect(customerService.currentCustomer()?.name).toBe('Marcus Tan');
     // A reload must leave the diner on the page they reloaded, not bounce them to /stalls.
     expect(navigateSpy).not.toHaveBeenCalled();
+  });
+
+  describe('self-collect dining (no table numbers)', () => {
+    async function orderScreen() {
+      const { CustomerOrderComponent } = await import('./features/order/customer-order.component');
+      const fixture = TestBed.createComponent(CustomerOrderComponent);
+      fixture.componentInstance.currentStall.set({ id: 'stall-1', numericId: 1, stallName: 'Ah Huat Chicken Rice', emoji: '🍗' } as any);
+      return fixture;
+    }
+
+    it('should not ask a dine-in diner for a table number', async () => {
+      const fixture = await orderScreen();
+      fixture.componentInstance.diningOption.set('dine_in');
+      fixture.detectChanges();
+
+      const page = fixture.nativeElement as HTMLElement;
+      expect(page.querySelector('input[placeholder*="Table"]')).toBeNull();
+      expect(page.textContent).not.toContain('Dining Table');
+      expect(page.textContent).toContain('Self-collect at the stall');
+    });
+
+    it('should tell takeaway diners to self-collect too', async () => {
+      const fixture = await orderScreen();
+      fixture.componentInstance.diningOption.set('takeaway');
+      fixture.detectChanges();
+
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain('Self-collect at the stall');
+    });
+
+    it('should place a dine-in order without a table on it', async () => {
+      const fixture = await orderScreen();
+      const component = fixture.componentInstance;
+      component.diningOption.set('dine_in');
+      component.addSimpleItem({ id: 'dish-1', numericDishId: 1, name: 'Steamed Chicken Rice', basePrice: 4.5, isAvailable: true } as any);
+      vi.spyOn(hawkerApiService, 'placeOrder').mockReturnValue(of({
+        message: 'Order submitted', order_id: 130, total_price: 4.5, order_status: 'PENDING', order_created_at: '2026-09-27T12:00:00Z'
+      }));
+      const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+      component.onCustomerPaymentComplete({ method: 'paynow' });
+
+      const placed = (navigateSpy.mock.calls[0][1] as any).state.order;
+      expect(placed.diningOption).toBe('dine_in');
+      expect(placed).not.toHaveProperty('tableOrBuzzerNumber');
+    });
   });
 
   describe('queued checkout through order_queue', () => {

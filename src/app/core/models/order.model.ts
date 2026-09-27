@@ -31,7 +31,6 @@ export interface Order {
   orderNumber: string; // e.g. "HF-101"
   dailySequence: number;
   diningOption: DiningOption;
-  tableOrBuzzerNumber?: string;
   items: OrderItem[];
   subtotal: number;
   takeawayFee: number;
