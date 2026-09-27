@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import { App } from './app';
 import { routes } from './app.routes';
@@ -14,6 +14,9 @@ import {
   HawkerApiService,
   HAWKER_STALLS_API_URL,
   ORDER_SUBMIT_API_URL,
+  ORDER_QUEUE_API_URL,
+  ORDER_QUEUE_POLL_INTERVAL_MS,
+  ORDER_QUEUE_TIMEOUT_MS,
   CUSTOMER_REGISTER_API_URL,
   CUSTOMER_CHECK_ACCOUNT_API_URL,
   CUSTOMER_UPDATE_ORDER_API_URL
@@ -1348,13 +1351,12 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
 
     component.onCustomerPaymentComplete({ method: 'paynow' });
 
-    // Expect createOrder call
-    const createReq = httpMock.expectOne(r => r.url.includes('/order/orders') && r.method === 'POST');
-    createReq.flush({
-      order_id: 88,
-      order_status: 'PENDING',
-      order_created_at: new Date().toISOString()
-    });
+    // The order goes through order_queue, then its order_id is looked up
+    httpMock.expectOne(ORDER_QUEUE_API_URL)
+      .flush({ order_ref: 'ref-88', status: 'QUEUED' }, { status: 202, statusText: 'Accepted' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    httpMock.expectOne(`${ORDER_QUEUE_API_URL}/ref-88`)
+      .flush({ order_ref: 'ref-88', order_id: 88, status: 'CREATED' });
 
     // Verify NO call to POST /v1/customer/user/update_order was made
     httpMock.expectNone(r => r.url.includes('/customer/user/update_order'));
@@ -1442,6 +1444,152 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     expect(customerService.currentCustomer()?.name).toBe('Marcus Tan');
     // A reload must leave the diner on the page they reloaded, not bounce them to /stalls.
     expect(navigateSpy).not.toHaveBeenCalled();
+  });
+
+  describe('queued checkout through order_queue', () => {
+    const payload: BackendCreateOrderPayload = {
+      orders: [{ stall_id: 1, dishes: [{ dish_id: 1, dish_name: 'Steamed Chicken Rice', quantity: 1, price: 4.5 }] }],
+      total_price: 4.5
+    };
+
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it('should queue the order and poll until the order service has created it', async () => {
+      let result: any = null;
+      hawkerApiService.placeOrder(payload).subscribe(res => (result = res));
+
+      const queueReq = httpMock.expectOne(ORDER_QUEUE_API_URL);
+      expect(queueReq.request.method).toBe('POST');
+      expect(queueReq.request.body).toEqual(payload);
+      queueReq.flush({ message: 'Order queued', order_ref: 'ref-123', status: 'QUEUED' }, { status: 202, statusText: 'Accepted' });
+
+      // Still queued on the first look-up
+      await vi.advanceTimersByTimeAsync(0);
+      httpMock.expectOne(`${ORDER_QUEUE_API_URL}/ref-123`)
+        .flush({ order_ref: 'ref-123', status: 'PENDING' }, { status: 202, statusText: 'Accepted' });
+      expect(result).toBeNull();
+
+      // Created by the time of the next look-up
+      await vi.advanceTimersByTimeAsync(ORDER_QUEUE_POLL_INTERVAL_MS);
+      httpMock.expectOne(`${ORDER_QUEUE_API_URL}/ref-123`)
+        .flush({ order_ref: 'ref-123', order_id: 109, status: 'CREATED' });
+
+      expect(result?.order_id).toBe(109);
+      expect(result?.order_status).toBe('PENDING');
+      expect(result?.total_price).toBe(4.5);
+
+      // Polling stops once the order exists
+      await vi.advanceTimersByTimeAsync(ORDER_QUEUE_POLL_INTERVAL_MS * 3);
+      httpMock.expectNone(`${ORDER_QUEUE_API_URL}/ref-123`);
+    });
+
+    it('should show "Sending your order" at checkout until the order number arrives', async () => {
+      const { CustomerOrderComponent } = await import('./features/order/customer-order.component');
+      const fixture = TestBed.createComponent(CustomerOrderComponent);
+      const component = fixture.componentInstance;
+      component.currentStall.set({ id: 'stall-1', numericId: 1, stallName: 'Ah Huat Chicken Rice', emoji: '🍗' } as any);
+      component.addSimpleItem({ id: 'dish-1', numericDishId: 1, name: 'Steamed Chicken Rice', basePrice: 4.5, isAvailable: true } as any);
+      const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+      component.onCustomerPaymentComplete({ method: 'paynow' });
+      fixture.detectChanges();
+
+      const page = fixture.nativeElement as HTMLElement;
+      expect(page.textContent).toContain('Sending your order');
+      httpMock.expectNone(ORDER_SUBMIT_API_URL);
+      httpMock.expectOne(ORDER_QUEUE_API_URL)
+        .flush({ order_ref: 'ref-789', status: 'QUEUED' }, { status: 202, statusText: 'Accepted' });
+
+      await vi.advanceTimersByTimeAsync(0);
+      httpMock.expectOne(`${ORDER_QUEUE_API_URL}/ref-789`)
+        .flush({ order_ref: 'ref-789', order_id: 109, status: 'CREATED' });
+      fixture.detectChanges();
+
+      expect(page.textContent).not.toContain('Sending your order');
+      expect(navigateSpy).toHaveBeenCalledWith(['/order-tracker', '109'], expect.anything());
+    });
+
+    it('should not invent an order number when a queued order is not confirmed in time', async () => {
+      const { CustomerOrderComponent } = await import('./features/order/customer-order.component');
+      const fixture = TestBed.createComponent(CustomerOrderComponent);
+      const component = fixture.componentInstance;
+      component.currentStall.set({ id: 'stall-1', numericId: 1, stallName: 'Ah Huat Chicken Rice', emoji: '🍗' } as any);
+      component.addSimpleItem({ id: 'dish-1', numericDishId: 1, name: 'Steamed Chicken Rice', basePrice: 4.5, isAvailable: true } as any);
+      const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+      const recordSpy = vi.spyOn(customerService, 'recordCustomerOrder');
+      vi.spyOn(hawkerApiService, 'placeOrder').mockReturnValue(
+        throwError(() => Object.assign(new Error('Timeout has occurred'), { name: 'TimeoutError' }))
+      );
+
+      component.onCustomerPaymentComplete({ method: 'paynow' });
+      fixture.detectChanges();
+
+      // The order may still reach the kitchen, so no made-up HF number and no tracker.
+      expect(navigateSpy).not.toHaveBeenCalled();
+      expect(recordSpy).not.toHaveBeenCalled();
+      const page = fixture.nativeElement as HTMLElement;
+      expect(page.textContent).toContain('taking longer than usual');
+      expect(page.textContent).not.toContain('Sending your order');
+      // The basket is kept in case the order never arrives.
+      expect(component.cart().length).toBe(1);
+    });
+
+    it('should keep polling through a failed look-up, since the order is already queued', async () => {
+      let result: any = null;
+      let error: any = null;
+      hawkerApiService.placeOrder(payload).subscribe({ next: res => (result = res), error: err => (error = err) });
+
+      httpMock.expectOne(ORDER_QUEUE_API_URL)
+        .flush({ order_ref: 'ref-456', status: 'QUEUED' }, { status: 202, statusText: 'Accepted' });
+
+      await vi.advanceTimersByTimeAsync(0);
+      httpMock.expectOne(`${ORDER_QUEUE_API_URL}/ref-456`)
+        .flush({ detail: 'Bad gateway' }, { status: 502, statusText: 'Bad Gateway' });
+
+      await vi.advanceTimersByTimeAsync(ORDER_QUEUE_POLL_INTERVAL_MS);
+      httpMock.expectOne(`${ORDER_QUEUE_API_URL}/ref-456`)
+        .flush({ order_ref: 'ref-456', order_id: 110, status: 'CREATED' });
+
+      expect(error).toBeNull();
+      expect(result?.order_id).toBe(110);
+      // Never re-submitted directly: that would create a second order.
+      httpMock.expectNone(ORDER_SUBMIT_API_URL);
+    });
+
+    it('should fall back to a direct order when the order queue is unavailable', async () => {
+      let result: any = null;
+      hawkerApiService.placeOrder(payload).subscribe(res => (result = res));
+
+      httpMock.expectOne(ORDER_QUEUE_API_URL)
+        .flush({ detail: 'Order queue is not configured' }, { status: 503, statusText: 'Service Unavailable' });
+
+      const directReq = httpMock.expectOne(ORDER_SUBMIT_API_URL);
+      expect(directReq.request.body).toEqual(payload);
+      directReq.flush({ message: 'Order submitted', order_id: 42, total_price: 4.5, order_status: 'PENDING', order_created_at: '2026-09-27 16:00:00' });
+
+      expect(result?.order_id).toBe(42);
+    });
+
+    it('should give up with an error when the order is never created', async () => {
+      let error: any = null;
+      hawkerApiService.placeOrder(payload).subscribe({ error: err => (error = err) });
+
+      httpMock.expectOne(ORDER_QUEUE_API_URL)
+        .flush({ order_ref: 'ref-stuck', status: 'QUEUED' }, { status: 202, statusText: 'Accepted' });
+
+      // The order service keeps answering PENDING until the time limit runs out.
+      for (let elapsed = 0; elapsed <= ORDER_QUEUE_TIMEOUT_MS && !error; elapsed += ORDER_QUEUE_POLL_INTERVAL_MS) {
+        await vi.advanceTimersByTimeAsync(elapsed === 0 ? 0 : ORDER_QUEUE_POLL_INTERVAL_MS);
+        httpMock.match(`${ORDER_QUEUE_API_URL}/ref-stuck`)
+          .forEach(r => r.flush({ order_ref: 'ref-stuck', status: 'PENDING' }, { status: 202, statusText: 'Accepted' }));
+      }
+
+      expect(error?.name).toBe('TimeoutError');
+      // Once it gives up it stops polling.
+      await vi.advanceTimersByTimeAsync(ORDER_QUEUE_POLL_INTERVAL_MS * 3);
+      httpMock.expectNone(`${ORDER_QUEUE_API_URL}/ref-stuck`);
+    });
   });
 
   it('should restore the customer session while the app starts up', async () => {

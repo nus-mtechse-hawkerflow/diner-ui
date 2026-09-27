@@ -49,6 +49,18 @@ export interface BackendCreateOrderResponse {
   order_created_at: string;
 }
 
+export interface BackendQueueOrderResponse {
+  message: string;
+  order_ref: string;
+  status: 'QUEUED';
+}
+
+export interface BackendQueuedOrderStatus {
+  order_ref: string;
+  status: 'PENDING' | 'CREATED';
+  order_id?: number;
+}
+
 export interface BackendCustomerRegisterPayload {
   first_name: string;
   last_name: string;
