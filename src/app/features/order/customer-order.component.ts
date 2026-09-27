@@ -277,7 +277,9 @@ export class CustomerOrderComponent implements OnInit {
           dishes
         }
       ],
-      total_price: grandTotal
+      total_price: grandTotal,
+      dining_option: this.diningOption(),
+      takeaway_fee: this.takeawayFee()
     };
 
     // Queue via POST http://localhost:8082/hawkerflow/v1/order/orders/queue, then wait for the order_id
