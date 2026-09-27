@@ -6,6 +6,7 @@ import { of } from 'rxjs';
 import { vi } from 'vitest';
 import { App } from './app';
 import { routes } from './app.routes';
+import { restoreCustomerSession } from './app.config';
 import { CustomerService } from './core/services/customer.service';
 import { AuthService } from './core/services/auth.service';
 import { CognitoService, LOCALSTACK_COGNITO_ENDPOINT } from './core/services/cognito.service';
@@ -1415,6 +1416,55 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     // "Done" button should NOT be rendered
     expect(compiled.textContent).not.toContain('Done');
     expect(compiled.querySelector('button[title*="Mark as collected"]')).toBeNull();
+  });
+
+  it('should restore the signed-in customer from the stored Cognito session after a page reload', async () => {
+    vi.spyOn(cognitoService, 'restoreSession').mockReturnValue(of({
+      success: true,
+      isSignedIn: true,
+      userSub: '98ed4959-78dd-4cb7-a4c1-3772c5485dbe',
+      user: { username: '98ed4959-78dd-4cb7-a4c1-3772c5485dbe', signInDetails: { loginId: 'marcus@hawkerflow.sg' } },
+      tokens: { accessToken: 'access-token', idToken: 'id-token' }
+    }));
+    const navigateSpy = vi.spyOn(router, 'navigate');
+
+    const restorePromise = new Promise<boolean>(resolve => {
+      customerService.restoreSession().subscribe(resolve);
+    });
+
+    const req = httpMock.expectOne(r => r.url.includes('/customer/user/98ed4959-78dd-4cb7-a4c1-3772c5485dbe'));
+    req.flush({ cust_name: 'Marcus Tan' });
+
+    expect(await restorePromise).toBe(true);
+    expect(customerService.isAuthenticated()).toBe(true);
+    expect(customerService.currentCustomer()?.cognitoSub).toBe('98ed4959-78dd-4cb7-a4c1-3772c5485dbe');
+    expect(customerService.currentCustomer()?.email).toBe('marcus@hawkerflow.sg');
+    expect(customerService.currentCustomer()?.name).toBe('Marcus Tan');
+    // A reload must leave the diner on the page they reloaded, not bounce them to /stalls.
+    expect(navigateSpy).not.toHaveBeenCalled();
+  });
+
+  it('should restore the customer session while the app starts up', async () => {
+    const restoreSpy = vi.spyOn(customerService, 'restoreSession').mockReturnValue(of(true));
+
+    await TestBed.runInInjectionContext(() => restoreCustomerSession());
+
+    expect(restoreSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('should stay signed out after a page reload when there is no stored Cognito session', async () => {
+    vi.spyOn(cognitoService, 'restoreSession').mockReturnValue(of({
+      success: false,
+      isSignedIn: false
+    }));
+
+    const restored = await new Promise<boolean>(resolve => {
+      customerService.restoreSession().subscribe(resolve);
+    });
+
+    expect(restored).toBe(false);
+    expect(customerService.currentCustomer()).toBeNull();
+    httpMock.expectNone(r => r.url.includes('/customer/user/'));
   });
 });
 

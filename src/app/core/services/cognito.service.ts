@@ -386,6 +386,39 @@ export class CognitoService {
   }
 
   /**
+   * Reads the session Amplify persisted in localStorage at sign-in, refreshing
+   * expired tokens. Resolves isSignedIn: false when nobody is signed in.
+   */
+  restoreSession(): Observable<CognitoSignInResult> {
+    const promise = (async (): Promise<CognitoSignInResult> => {
+      try {
+        const currentUser = await getCurrentUser();
+        const session = await fetchAuthSession();
+        if (!session.tokens) {
+          return { success: false, isSignedIn: false };
+        }
+        const tokens: CognitoAuthTokens = {
+          accessToken: session.tokens.accessToken?.toString(),
+          idToken: session.tokens.idToken?.toString()
+        };
+        this.currentAuthUser.set(currentUser);
+        this.activeTokens.set(tokens);
+        return {
+          success: true,
+          isSignedIn: true,
+          user: currentUser,
+          userSub: currentUser.userId || (session.tokens.idToken?.payload as any)?.sub,
+          tokens
+        };
+      } catch {
+        return { success: false, isSignedIn: false };
+      }
+    })();
+
+    return from(promise);
+  }
+
+  /**
    * Gets the current authenticated session via AWS Amplify
    */
   async getSession(): Promise<any> {
