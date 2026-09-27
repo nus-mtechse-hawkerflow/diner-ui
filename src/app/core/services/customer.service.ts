@@ -3,7 +3,7 @@ import { Router } from '@angular/router';
 import { Observable, of, tap, catchError, map, switchMap } from 'rxjs';
 import { CustomerUser, CustomerVoucher, CustomerStampCard, CustomerTier } from '../models/customer.model';
 import { Order, OrderItem, OrderStatus } from '../models/order.model';
-import { CognitoService } from './cognito.service';
+import { CognitoAuthTokens, CognitoService } from './cognito.service';
 import { HawkerApiService } from './hawker-api.service';
 import {
   BackendCustomerRegisterPayload,
@@ -97,48 +97,10 @@ export class CustomerService {
         }
 
         const custSub = res.userSub || res.user?.userId || res.user?.sub || term;
+        const user = this.buildSignedInUser(term, custSub, res.tokens);
 
-        const user: CustomerUser = {
-          id: custSub,
-          cognitoSub: custSub,
-          cognitoUsername: term,
-          name: term.includes('@') ? term.split('@')[0] : 'Diner ' + term.slice(-4),
-          email: term.includes('@') ? term : undefined,
-          phone: !term.includes('@') ? term : undefined,
-          isGuest: false,
-          loyaltyPoints: 0,
-          tier: 'Bronze Kaki',
-          avatarEmoji: '🥢',
-          registeredAt: new Date().toISOString(),
-          accessToken: res.tokens?.accessToken,
-          idToken: res.tokens?.idToken
-        };
-
-        // Fetch customer details from endpoint: /customer/user/{cust_sub}
-        return this.hawkerApiService.getCustomerDetails(custSub).pipe(
-          map(detail => {
-            if (detail) {
-              if (detail.cust_id || detail.customer_id) {
-                user.id = detail.cust_id || detail.customer_id || user.id;
-              }
-              if (detail.cust_name || detail.customer_name) {
-                user.name = detail.cust_name || detail.customer_name || user.name;
-              }
-              if (detail.last_login) {
-                user.lastLogin = detail.last_login;
-              }
-              if (detail.email) {
-                user.email = detail.email;
-              }
-              if (detail.phone_number) {
-                user.phone = detail.phone_number;
-              }
-              if (detail.past_orders) {
-                const mappedOrders = this.mapPastOrders(detail.past_orders);
-                this.customerOrders.set(mappedOrders);
-              }
-            }
-            this.currentCustomer.set(user);
+        return this.loadCustomerDetails(user).pipe(
+          map(() => {
             this.router.navigate(['/stalls']);
             return {
               success: true,
@@ -146,16 +108,6 @@ export class CustomerService {
               isSignedIn: true,
               user
             };
-          }),
-          catchError(() => {
-            this.currentCustomer.set(user);
-            this.router.navigate(['/stalls']);
-            return of({
-              success: true,
-              requiresMfa: false,
-              isSignedIn: true,
-              user
-            });
           })
         );
       }),
@@ -484,6 +436,80 @@ export class CustomerService {
 
   resendConfirmationCode(username: string): Observable<{ success: boolean; destination?: string; error?: string }> {
     return this.cognitoService.resendSignUpCode(username);
+  }
+
+  /**
+   * Rebuilds the signed-in customer from the Cognito session Amplify keeps in
+   * localStorage, so a page reload does not sign the diner out. Stays on the
+   * current page. Emits whether a customer was restored.
+   */
+  restoreSession(): Observable<boolean> {
+    return this.cognitoService.restoreSession().pipe(
+      switchMap(res => {
+        if (!res.success || !res.isSignedIn || !res.userSub) {
+          return of(false);
+        }
+        const loginId = res.user?.signInDetails?.loginId || res.user?.username || res.userSub;
+        const user = this.buildSignedInUser(loginId, res.userSub, res.tokens);
+        return this.loadCustomerDetails(user).pipe(map(() => true));
+      })
+    );
+  }
+
+  private buildSignedInUser(loginId: string, custSub: string, tokens?: CognitoAuthTokens): CustomerUser {
+    return {
+      id: custSub,
+      cognitoSub: custSub,
+      cognitoUsername: loginId,
+      name: loginId.includes('@') ? loginId.split('@')[0] : 'Diner ' + loginId.slice(-4),
+      email: loginId.includes('@') ? loginId : undefined,
+      phone: !loginId.includes('@') ? loginId : undefined,
+      isGuest: false,
+      loyaltyPoints: 0,
+      tier: 'Bronze Kaki',
+      avatarEmoji: '🥢',
+      registeredAt: new Date().toISOString(),
+      accessToken: tokens?.accessToken,
+      idToken: tokens?.idToken
+    };
+  }
+
+  /**
+   * Fills in the customer's details and past orders from /customer/user/{cust_sub},
+   * then makes them the current customer. A failed lookup still signs them in.
+   */
+  private loadCustomerDetails(user: CustomerUser): Observable<CustomerUser> {
+    return this.hawkerApiService.getCustomerDetails(user.cognitoSub!).pipe(
+      map(detail => {
+        if (detail) {
+          if (detail.cust_id || detail.customer_id) {
+            user.id = detail.cust_id || detail.customer_id || user.id;
+          }
+          if (detail.cust_name || detail.customer_name) {
+            user.name = detail.cust_name || detail.customer_name || user.name;
+          }
+          if (detail.last_login) {
+            user.lastLogin = detail.last_login;
+          }
+          if (detail.email) {
+            user.email = detail.email;
+          }
+          if (detail.phone_number) {
+            user.phone = detail.phone_number;
+          }
+          if (detail.past_orders) {
+            const mappedOrders = this.mapPastOrders(detail.past_orders);
+            this.customerOrders.set(mappedOrders);
+          }
+        }
+        this.currentCustomer.set(user);
+        return user;
+      }),
+      catchError(() => {
+        this.currentCustomer.set(user);
+        return of(user);
+      })
+    );
   }
 
   logout(): void {
