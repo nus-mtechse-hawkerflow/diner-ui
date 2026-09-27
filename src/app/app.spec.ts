@@ -4,6 +4,8 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { of, throwError } from 'rxjs';
 import { vi } from 'vitest';
+import { Amplify } from 'aws-amplify';
+import { environment } from '../environments/environment';
 import { App } from './app';
 import { routes } from './app.routes';
 import { restoreCustomerSession } from './app.config';
@@ -1439,6 +1441,17 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     expect(customerService.currentCustomer()?.name).toBe('Marcus Tan');
     // A reload must leave the diner on the page they reloaded, not bounce them to /stalls.
     expect(navigateSpy).not.toHaveBeenCalled();
+  });
+
+  it('should configure Cognito from the environment file, not from values in the code', () => {
+    const configureSpy = vi.spyOn(Amplify, 'configure');
+
+    new CognitoService();
+
+    const cognito = (configureSpy.mock.calls.at(-1)![0] as any).Auth.Cognito;
+    expect(cognito.userPoolId).toBe(environment.cognito.userPoolId);
+    expect(cognito.userPoolClientId).toBe(environment.cognito.userPoolClientId);
+    expect(cognito.userPoolEndpoint).toBe(environment.cognito.endpoint);
   });
 
   describe('self-collect dining (no table numbers)', () => {
