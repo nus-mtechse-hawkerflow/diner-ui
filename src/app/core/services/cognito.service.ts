@@ -17,11 +17,13 @@ import {
   ConfirmSignInOutput,
   ResendSignUpCodeOutput
 } from 'aws-amplify/auth';
+import { environment } from '../../../environments/environment';
 
-export const LOCALSTACK_COGNITO_ENDPOINT = 'http://localhost:4566';
-export const DEFAULT_USER_POOL_ID = 'us-east-1_d76416bbbdc340c693bde36dac569975';
-export const DEFAULT_CLIENT_ID = 'customer_client';
-export const DEFAULT_REGION = 'us-east-1';
+// Pool IDs differ per developer's LocalStack: set them in src/environments/environment.ts.
+export const LOCALSTACK_COGNITO_ENDPOINT = environment.cognito.endpoint;
+export const DEFAULT_USER_POOL_ID = environment.cognito.userPoolId;
+export const DEFAULT_CLIENT_ID = environment.cognito.userPoolClientId;
+export const DEFAULT_REGION = environment.cognito.region;
 
 export interface CognitoAuthTokens {
   accessToken?: string;
