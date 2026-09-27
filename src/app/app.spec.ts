@@ -28,6 +28,7 @@ import {
   DEFAULT_ORDER_POLLING_INTERVAL_MS
 } from './core/services/order-notification.service';
 import { Order } from './core/models/order.model';
+import { diningFromBackendOrder } from './features/order-tracker/customer-order-tracker.component';
 import { BackendCreateOrderPayload, BackendStallsResponse, BackendUpdateCustomerOrderPayload } from './core/models/hawker-api.model';
 
 describe('HawkerFlow Diner App & Loyalty System', () => {
@@ -1465,6 +1466,32 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
       fixture.detectChanges();
 
       expect((fixture.nativeElement as HTMLElement).textContent).toContain('Self-collect at the stall');
+    });
+
+    it('should tell the order service which dining option and takeaway fee the diner chose', async () => {
+      const fixture = await orderScreen();
+      const component = fixture.componentInstance;
+      component.addSimpleItem({ id: 'dish-1', numericDishId: 1, name: 'Steamed Chicken Rice', basePrice: 4.5, isAvailable: true } as any);
+      vi.spyOn(router, 'navigate').mockResolvedValue(true);
+      const placeSpy = vi.spyOn(hawkerApiService, 'placeOrder').mockReturnValue(of({
+        message: 'Order submitted', order_id: 131, total_price: 4.8, order_status: 'PENDING', order_created_at: '2026-09-27T12:00:00Z'
+      }));
+
+      component.diningOption.set('takeaway');
+      component.onCustomerPaymentComplete({ method: 'paynow' });
+
+      const sent = placeSpy.mock.calls[0][0];
+      expect(sent.dining_option).toBe('takeaway');
+      expect(sent.takeaway_fee).toBe(0.3);
+      expect(sent.total_price).toBe(4.8);
+    });
+
+    it('should read the dining option, fee and total of an order from the order service', () => {
+      expect(diningFromBackendOrder({ dining_option: 'takeaway', takeaway_fee: 0.3, total_order_price: 4.8 }))
+        .toEqual({ diningOption: 'takeaway', takeawayFee: 0.3, total: 4.8, subtotal: 4.5 });
+      // Orders from before dining options were stored are dine-in
+      expect(diningFromBackendOrder({ total_order_price: 9.5 }))
+        .toEqual({ diningOption: 'dine_in', takeawayFee: 0, total: 9.5, subtotal: 9.5 });
     });
 
     it('should place a dine-in order without a table on it', async () => {

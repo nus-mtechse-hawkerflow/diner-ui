@@ -39,6 +39,9 @@ export interface BackendStallOrder {
 export interface BackendCreateOrderPayload {
   orders: BackendStallOrder[];
   total_price: number;
+  // Both self-collect; takeaway tells the stall to pack the order.
+  dining_option?: 'dine_in' | 'takeaway';
+  takeaway_fee?: number;
 }
 
 export interface BackendCreateOrderResponse {

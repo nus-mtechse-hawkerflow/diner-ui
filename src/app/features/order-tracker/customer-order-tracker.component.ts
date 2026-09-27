@@ -12,6 +12,24 @@ import { OrderStatusEvent } from '../../core/models/order-notification.model';
 import { ReceiptModalComponent } from '../../shared/components/receipt-modal/receipt-modal.component';
 import { IconComponent } from '../../shared/components/icon/icon.component';
 
+/**
+ * Dining option, takeaway fee and totals of an order as the order service
+ * returns it (GET /v1/order/orders/{order_id}). Orders stored before dining
+ * options existed come back without one and are dine-in.
+ */
+export function diningFromBackendOrder(backendOrder: any): Pick<Order, 'diningOption' | 'takeawayFee' | 'subtotal' | 'total'> {
+  const total = Number(
+    backendOrder?.total_order_price ?? backendOrder?.total_price ?? backendOrder?.f_total_price ?? backendOrder?.order_price ?? 0
+  ) || 0;
+  const takeawayFee = Number(backendOrder?.takeaway_fee) || 0;
+  return {
+    diningOption: backendOrder?.dining_option === 'takeaway' ? 'takeaway' : 'dine_in',
+    takeawayFee,
+    total,
+    subtotal: Number((total - takeawayFee).toFixed(2))
+  };
+}
+
 @Component({
   selector: 'app-customer-order-tracker',
   standalone: true,
@@ -118,13 +136,10 @@ export class CustomerOrderTrackerComponent implements OnInit, OnDestroy {
                 id: String(backendOrder.f_id || id),
                 orderNumber: `HF-${String(id).padStart(3, '0')}`,
                 dailySequence: Number(id) || 1,
-                diningOption: 'dine_in',
                 items: [],
-                subtotal: Number(backendOrder.f_total_price) || 0,
-                takeawayFee: 0,
+                ...diningFromBackendOrder(backendOrder),
                 tax: 0,
                 discount: 0,
-                total: Number(backendOrder.f_total_price) || 0,
                 paymentMethod: 'paynow',
                 paymentStatus: 'paid',
                 status: mapped,
@@ -244,7 +259,6 @@ export class CustomerOrderTrackerComponent implements OnInit, OnDestroy {
           else mapped = 'completed';
 
           const orderIdNum = Number(backendOrder.order_id || backendOrder.f_id || backendOrder.id || parseInt(q.replace(/\D/g, ''), 10) || 1);
-          const totalPrice = Number(backendOrder.total_price || backendOrder.f_total_price || backendOrder.order_price || 0);
 
           let items: any[] = [];
           if (Array.isArray(backendOrder.dishes)) {
@@ -265,13 +279,10 @@ export class CustomerOrderTrackerComponent implements OnInit, OnDestroy {
             id: String(orderIdNum),
             orderNumber: `HF-${String(orderIdNum).padStart(3, '0')}`,
             dailySequence: orderIdNum,
-            diningOption: 'dine_in',
             items,
-            subtotal: totalPrice,
-            takeawayFee: 0,
+            ...diningFromBackendOrder(backendOrder),
             tax: 0,
             discount: 0,
-            total: totalPrice,
             paymentMethod: 'paynow',
             paymentStatus: 'paid',
             status: mapped,
