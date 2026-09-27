@@ -50,6 +50,7 @@ export class CustomerOrderComponent implements OnInit {
   showCartModal = signal<boolean>(false);
   showPaymentModal = signal<boolean>(false);
   isSubmittingOrder = signal<boolean>(false);
+  orderDelayed = signal<boolean>(false);
 
   readonly isLoadingStalls = this.authService.isLoadingStalls;
 
@@ -280,8 +281,8 @@ export class CustomerOrderComponent implements OnInit {
       total_price: grandTotal
     };
 
-    // Call POST http://localhost:8082/hawkerflow/v1/order/orders
-    this.hawkerApiService.createOrder(backendPayload).subscribe({
+    // Queue via POST http://localhost:8082/hawkerflow/v1/order/orders/queue, then wait for the order_id
+    this.hawkerApiService.placeOrder(backendPayload).subscribe({
       next: (response) => {
         this.isSubmittingOrder.set(false);
         const orderId = String(response.order_id);
@@ -312,6 +313,16 @@ export class CustomerOrderComponent implements OnInit {
       },
       error: (err) => {
         this.isSubmittingOrder.set(false);
+
+        // The order was queued but not confirmed in time. It may still reach the
+        // kitchen, so an offline order here would give the diner a made-up
+        // number for a real order. Keep the basket in case it never arrives.
+        if (err?.name === 'TimeoutError') {
+          console.warn('Queued order not confirmed in time:', err);
+          this.orderDelayed.set(true);
+          return;
+        }
+
         console.warn('Backend order API currently unreachable, falling back to offline order:', err);
 
         // Fallback local order creation to prevent diner disruption

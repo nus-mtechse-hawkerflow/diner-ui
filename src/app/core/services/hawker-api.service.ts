@@ -1,9 +1,11 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { Observable, of, map } from 'rxjs';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { Observable, of, map, catchError, exhaustMap, first, switchMap, throwError, timeout, timer } from 'rxjs';
 import {
   BackendCreateOrderPayload,
   BackendCreateOrderResponse,
+  BackendQueueOrderResponse,
+  BackendQueuedOrderStatus,
   BackendCustomerRegisterPayload,
   BackendCheckAccountPayload,
   BackendCheckAccountResponse,
@@ -18,6 +20,9 @@ import { StallSettings } from '../models/settings.model';
 
 export const HAWKER_STALLS_API_URL = 'http://localhost:8080/hawkerflow/v1/hawker/stalls';
 export const ORDER_SUBMIT_API_URL = 'http://localhost:8082/hawkerflow/v1/order/orders';
+export const ORDER_QUEUE_API_URL = 'http://localhost:8082/hawkerflow/v1/order/orders/queue';
+export const ORDER_QUEUE_POLL_INTERVAL_MS = 500;
+export const ORDER_QUEUE_TIMEOUT_MS = 30000;
 export const CUSTOMER_REGISTER_API_URL = 'http://localhost:8081/hawkerflow/v1/customer/register';
 export const CUSTOMER_CHECK_ACCOUNT_API_URL = 'http://localhost:8081/hawkerflow/v1/customer/check_account_exist';
 export const CUSTOMER_USER_API_BASE_URL = 'http://localhost:8081/hawkerflow/v1/customer/user';
@@ -89,6 +94,49 @@ export class HawkerApiService {
    */
   createOrder(payload: BackendCreateOrderPayload): Observable<BackendCreateOrderResponse> {
     return this.http.post<BackendCreateOrderResponse>(ORDER_SUBMIT_API_URL, payload);
+  }
+
+  /**
+   * Place a diner order through the order service's queue.
+   * POST http://localhost:8082/hawkerflow/v1/order/orders/queue answers with an
+   * order_ref; GET .../orders/queue/{order_ref} is polled until the SQS worker
+   * has created the order. Emits the same shape as createOrder.
+   *
+   * Falls back to createOrder only when the queue endpoint itself is
+   * unavailable (503: SQS disabled, 404: older order service). Once an order is
+   * queued it is never re-submitted, which would create it twice.
+   */
+  placeOrder(payload: BackendCreateOrderPayload): Observable<BackendCreateOrderResponse> {
+    return this.http.post<BackendQueueOrderResponse>(ORDER_QUEUE_API_URL, payload).pipe(
+      catchError(err => {
+        if (err instanceof HttpErrorResponse && (err.status === 503 || err.status === 404)) {
+          return of(null);
+        }
+        return throwError(() => err);
+      }),
+      switchMap(queued => queued
+        ? this.awaitQueuedOrder(queued.order_ref, payload.total_price)
+        : this.createOrder(payload))
+    );
+  }
+
+  private awaitQueuedOrder(orderRef: string, totalPrice: number): Observable<BackendCreateOrderResponse> {
+    const lookupUrl = `${ORDER_QUEUE_API_URL}/${encodeURIComponent(orderRef)}`;
+    return timer(0, ORDER_QUEUE_POLL_INTERVAL_MS).pipe(
+      // A failed look-up is retried on the next tick: the order is already queued.
+      exhaustMap(() => this.http.get<BackendQueuedOrderStatus>(lookupUrl).pipe(
+        catchError(() => of(null))
+      )),
+      first(status => status?.status === 'CREATED' && status.order_id !== undefined),
+      map(status => ({
+        message: 'Order submitted',
+        order_id: status!.order_id!,
+        total_price: totalPrice,
+        order_status: 'PENDING',
+        order_created_at: new Date().toISOString()
+      })),
+      timeout(ORDER_QUEUE_TIMEOUT_MS)
+    );
   }
 
   /**
