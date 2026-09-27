@@ -43,7 +43,6 @@ export class CustomerOrderComponent implements OnInit {
   selectedCategory = signal<string>('all');
 
   diningOption = signal<DiningOption>('dine_in');
-  tableNumber = 'Table 04';
 
   cart = signal<OrderItem[]>([]);
   selectedItemForModifier = signal<MenuItem | null>(null);
@@ -294,7 +293,6 @@ export class CustomerOrderComponent implements OnInit {
           orderNumber,
           dailySequence: response.order_id,
           diningOption: this.diningOption(),
-          tableOrBuzzerNumber: this.diningOption() === 'dine_in' ? this.tableNumber : 'Takeaway Pickup',
           items: [...this.cart()],
           subtotal: this.rawSubtotal(),
           takeawayFee: this.takeawayFee(),
@@ -336,7 +334,6 @@ export class CustomerOrderComponent implements OnInit {
           orderNumber,
           dailySequence: seq,
           diningOption: this.diningOption(),
-          tableOrBuzzerNumber: this.diningOption() === 'dine_in' ? this.tableNumber : 'Takeaway Pickup',
           items: [...this.cart()],
           subtotal: this.rawSubtotal(),
           takeawayFee: this.takeawayFee(),

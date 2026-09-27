@@ -133,7 +133,7 @@
       <div class="space-y-2.5 text-xs">
         <div class="flex items-center justify-between text-slate-400">
           <span>Target:</span>
-          <span class="font-bold text-white">{{ order()?.diningOption === 'dine_in' ? '🍽️ ' + (order()?.tableOrBuzzerNumber || 'Dine-In') : '🥡 Takeaway Pickup' }}</span>
+          <span class="font-bold text-white">{{ order()?.diningOption === 'dine_in' ? '🍽️ Dine-in' : '🥡 Takeaway' }}</span>
         </div>
 
         @if ((order()?.items?.length || 0) > 0) {

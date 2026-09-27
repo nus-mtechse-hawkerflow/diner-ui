@@ -38,9 +38,6 @@
             <div class="inline-block mt-1 px-2.5 py-0.5 rounded font-bold uppercase text-[11px]"
               [ngClass]="order.diningOption === 'dine_in' ? 'bg-emerald-100 text-emerald-800' : 'bg-orange-100 text-orange-800'">
               {{ order.diningOption === 'dine_in' ? '🍽️ DINE-IN' : '🥡 TAKEAWAY' }}
-              @if (order.tableOrBuzzerNumber) {
-                <span> • {{ order.tableOrBuzzerNumber }}</span>
-              }
             </div>
             <div class="mt-2 text-[10px] text-slate-500 flex justify-between">
               <span>Date: {{ formatReceiptDate(order.createdAt) }}</span>

@@ -54,21 +54,10 @@
       </div>
     </div>
 
-    <!-- Table Number Input (if Dine-In) -->
-    @if (diningOption() === 'dine_in') {
-      <div class="pt-2 border-t border-slate-800 flex items-center justify-between gap-3 text-xs">
-        <div class="flex items-center gap-2 text-slate-300">
-          <span>📍 Dining Table:</span>
-          <input
-            type="text"
-            [(ngModel)]="tableNumber"
-            placeholder="e.g. Table 08"
-            class="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 font-bold focus:outline-none focus:ring-2 focus:ring-orange-500 w-32"
-          />
-        </div>
-        <span class="text-[11px] text-slate-400 hidden sm:inline">We'll notify your phone when ready!</span>
-      </div>
-    }
+    <!-- Dine-in and takeaway are both self-collect -->
+    <div class="pt-2 border-t border-slate-800 text-[11px] text-slate-400">
+      📍 Self-collect at the stall — we'll notify your phone when it's ready.
+    </div>
   </div>
 
   <!-- Category Filter Tabs -->
