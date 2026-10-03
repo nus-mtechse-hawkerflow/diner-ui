@@ -9,9 +9,10 @@ import { Order, OrderStatus } from '../models/order.model';
 import { CustomerService } from './customer.service';
 import { OrderService } from './order.service';
 import { AudioService } from './audio.service';
+import { environment } from '../../../environments/environment';
 
-export const SNS_ORDER_STATUS_TOPIC_ARN = 'arn:aws:sns:us-east-1:000000000000:order_status';
-export const ORDER_BACKEND_API_BASE = 'http://localhost:8082/hawkerflow/v1/order/orders';
+export const SNS_ORDER_STATUS_TOPIC_ARN = environment.sns.orderStatusTopicArn;
+export const ORDER_BACKEND_API_BASE = environment.api.orderSubmitUrl;
 export const DEFAULT_ORDER_POLLING_INTERVAL_MS = 10000; // 10 seconds
 
 @Injectable({

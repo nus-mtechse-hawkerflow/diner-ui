@@ -269,7 +269,7 @@ export class CustomerService {
 
         // 3. If account does not exist, proceed with AWS Cognito signUp
         return this.cognitoService.signUp({
-          username,
+          username: data.email?.trim() || rawPhone,
           password: data.password,
           name: fullName,
           phone: rawPhone,

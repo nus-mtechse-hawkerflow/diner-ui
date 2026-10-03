@@ -17,16 +17,17 @@ import {
 import { StallAccount } from '../models/auth.model';
 import { Category, MenuItem } from '../models/menu.model';
 import { StallSettings } from '../models/settings.model';
+import { environment } from '../../../environments/environment';
 
-export const HAWKER_STALLS_API_URL = 'http://localhost:8080/hawkerflow/v1/hawker/stalls';
-export const ORDER_SUBMIT_API_URL = 'http://localhost:8082/hawkerflow/v1/order/orders';
-export const ORDER_QUEUE_API_URL = 'http://localhost:8082/hawkerflow/v1/order/orders/queue';
+export const HAWKER_STALLS_API_URL = environment.api.hawkerStallsUrl;
+export const ORDER_SUBMIT_API_URL = environment.api.orderSubmitUrl;
+export const ORDER_QUEUE_API_URL = environment.api.orderQueueUrl;
 export const ORDER_QUEUE_POLL_INTERVAL_MS = 500;
 export const ORDER_QUEUE_TIMEOUT_MS = 30000;
-export const CUSTOMER_REGISTER_API_URL = 'http://localhost:8081/hawkerflow/v1/customer/register';
-export const CUSTOMER_CHECK_ACCOUNT_API_URL = 'http://localhost:8081/hawkerflow/v1/customer/check_account_exist';
-export const CUSTOMER_USER_API_BASE_URL = 'http://localhost:8081/hawkerflow/v1/customer/user';
-export const CUSTOMER_UPDATE_ORDER_API_URL = 'http://localhost:8081/hawkerflow/v1/customer/user/update_order';
+export const CUSTOMER_REGISTER_API_URL = environment.api.customerRegisterUrl;
+export const CUSTOMER_CHECK_ACCOUNT_API_URL = environment.api.customerCheckAccountUrl;
+export const CUSTOMER_USER_API_BASE_URL = environment.api.customerUserBaseUrl;
+export const CUSTOMER_UPDATE_ORDER_API_URL = environment.api.customerUpdateOrderUrl;
 
 @Injectable({
   providedIn: 'root'

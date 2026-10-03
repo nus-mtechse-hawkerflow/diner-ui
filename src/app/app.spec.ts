@@ -21,6 +21,7 @@ import {
   ORDER_QUEUE_TIMEOUT_MS,
   CUSTOMER_REGISTER_API_URL,
   CUSTOMER_CHECK_ACCOUNT_API_URL,
+  CUSTOMER_USER_API_BASE_URL,
   CUSTOMER_UPDATE_ORDER_API_URL
 } from './core/services/hawker-api.service';
 import {
@@ -1452,6 +1453,18 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     expect(cognito.userPoolId).toBe(environment.cognito.userPoolId);
     expect(cognito.userPoolClientId).toBe(environment.cognito.userPoolClientId);
     expect(cognito.userPoolEndpoint).toBe(environment.cognito.endpoint);
+  });
+
+  it('should source API URLs from the environment file, not from hardcoded values in the code', () => {
+    expect(HAWKER_STALLS_API_URL).toBe(environment.api.hawkerStallsUrl);
+    expect(ORDER_SUBMIT_API_URL).toBe(environment.api.orderSubmitUrl);
+    expect(ORDER_QUEUE_API_URL).toBe(environment.api.orderQueueUrl);
+    expect(CUSTOMER_REGISTER_API_URL).toBe(environment.api.customerRegisterUrl);
+    expect(CUSTOMER_CHECK_ACCOUNT_API_URL).toBe(environment.api.customerCheckAccountUrl);
+    expect(CUSTOMER_USER_API_BASE_URL).toBe(environment.api.customerUserBaseUrl);
+    expect(CUSTOMER_UPDATE_ORDER_API_URL).toBe(environment.api.customerUpdateOrderUrl);
+    expect(ORDER_BACKEND_API_BASE).toBe(environment.api.orderSubmitUrl);
+    expect(SNS_ORDER_STATUS_TOPIC_ARN).toBe(environment.sns.orderStatusTopicArn);
   });
 
   describe('self-collect dining (no table numbers)', () => {

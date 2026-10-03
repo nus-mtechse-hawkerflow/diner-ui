@@ -125,16 +125,16 @@ export class CustomerAuthComponent {
         }
 
         if (res.requiresMfa) {
-          this.pendingUsername = this.regPhone;
+          this.pendingUsername = this.regEmail;
           this.confirmationCode = '';
-          this.mfaDestination = res.codeDeliveryDetails?.destination || this.regPhone;
+          this.mfaDestination = res.codeDeliveryDetails?.destination || this.regPhone || this.regEmail;
           this.mfaDeliveryMedium = res.codeDeliveryDetails?.deliveryMedium || 'SMS';
           this.activeTab.set('confirm_mfa');
           return;
         }
 
         if (res.requiresConfirmation) {
-          this.pendingUsername = res.username || this.regPhone;
+          this.pendingUsername = this.regEmail;
           this.confirmationCode = '';
           this.mfaDestination = res.codeDeliveryDetails?.destination || this.regPhone || this.regEmail;
           this.mfaDeliveryMedium = res.codeDeliveryDetails?.deliveryMedium || 'SMS';
