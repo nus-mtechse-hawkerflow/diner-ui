@@ -234,7 +234,7 @@ export class OrderService {
       dish_id: item.numericDishId ?? (parseInt(item.menuItemId, 10) || 1),
       dish_name: item.name,
       quantity: item.quantity,
-      price: Number(item.totalPrice.toFixed(2))
+      price: Number(item.unitPriceWithModifiers.toFixed(2))
     }));
 
     const total = this.cartTotal();

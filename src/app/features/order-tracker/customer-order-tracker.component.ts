@@ -271,7 +271,7 @@ export class CustomerOrderTrackerComponent implements OnInit, OnDestroy {
               quantity: Number(d.quantity || 1),
               selectedModifiers: [],
               unitPriceWithModifiers: Number(d.price || d.order_price || 0),
-              totalPrice: Number(d.price || d.order_price || 0)
+              totalPrice: Number(d.price || d.order_price || 0) * Number(d.quantity || 1)
             }));
           }
 

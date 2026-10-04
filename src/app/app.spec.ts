@@ -1514,6 +1514,27 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
       expect(sent.total_price).toBe(4.8);
     });
 
+    it('should send each dish to the order service at its unit price, not the line total', async () => {
+      const fixture = await orderScreen();
+      const component = fixture.componentInstance;
+      const dish = { id: 'dish-1', numericDishId: 1, name: 'Steamed Chicken Rice', basePrice: 4.5, isAvailable: true } as any;
+      component.addSimpleItem(dish);
+      component.addSimpleItem(dish);
+      component.addSimpleItem(dish);
+      vi.spyOn(router, 'navigate').mockResolvedValue(true);
+      const placeSpy = vi.spyOn(hawkerApiService, 'placeOrder').mockReturnValue(of({
+        message: 'Order submitted', order_id: 132, total_price: 13.5, order_status: 'PENDING', order_created_at: '2026-09-27T12:00:00Z'
+      }));
+
+      component.onCustomerPaymentComplete({ method: 'paynow' });
+
+      const sent = placeSpy.mock.calls[0][0];
+      expect(sent.orders[0].dishes).toEqual([
+        { dish_id: 1, dish_name: 'Steamed Chicken Rice', quantity: 3, price: 4.5 }
+      ]);
+      expect(sent.total_price).toBe(13.5);
+    });
+
     it('should read the dining option, fee and total of an order from the order service', () => {
       expect(diningFromBackendOrder({ dining_option: 'takeaway', takeaway_fee: 0.3, total_order_price: 4.8 }))
         .toEqual({ diningOption: 'takeaway', takeawayFee: 0.3, total: 4.8, subtotal: 4.5 });

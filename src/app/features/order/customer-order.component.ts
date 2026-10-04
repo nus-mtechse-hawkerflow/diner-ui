@@ -286,7 +286,8 @@ export class CustomerOrderComponent implements OnInit {
       dish_id: item.numericDishId ?? (parseInt(item.menuItemId, 10) || 1),
       dish_name: item.name,
       quantity: item.quantity,
-      price: Number(item.totalPrice.toFixed(2))
+      // Unit price: the order service multiplies by quantity for the stall subtotal
+      price: Number(item.unitPriceWithModifiers.toFixed(2))
     }));
 
     const grandTotal = this.grandTotal();
