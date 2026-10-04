@@ -359,6 +359,7 @@ export class CustomerOrderTrackerComponent implements OnInit, OnDestroy {
     if (status === 'preparing') return '👨‍🍳 Wok is sizzling! Stall is cooking your dishes...';
     if (status === 'ready') return '🔥 Food is READY! Please collect at the stall counter.';
     if (status === 'completed') return '✅ Order Completed! Hope you enjoyed your meal! 🎉';
-    return '❌ Order was cancelled.';
+    // The order service also cancels an order no stall accepted in time
+    return '❌ Order was cancelled, or the stall did not accept it in time. Please reorder or check with the stall.';
   });
 }
