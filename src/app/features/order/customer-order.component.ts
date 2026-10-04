@@ -13,6 +13,12 @@ import { BackendCreateOrderPayload, BackendDishOrder } from '../../core/models/h
 import { ModifierModalComponent } from '../../shared/components/modifier-modal/modifier-modal.component';
 import { PaymentModalComponent } from '../../shared/components/payment-modal/payment-modal.component';
 import { IconComponent } from '../../shared/components/icon/icon.component';
+import { CART_STORAGE_KEY_PREFIX, readStored, writeStored } from '../../core/services/browser-storage';
+
+interface StoredCart {
+  items: OrderItem[];
+  diningOption: DiningOption;
+}
 
 @Component({
   selector: 'app-customer-order',
@@ -62,6 +68,13 @@ export class CustomerOrderComponent implements OnInit {
         this.loadStallData(id);
       }
     });
+
+    // Keep each stall's basket in localStorage so a page reload does not empty it
+    effect(() => {
+      const id = this.stallId();
+      const stored: StoredCart = { items: this.cart(), diningOption: this.diningOption() };
+      if (id) writeStored(CART_STORAGE_KEY_PREFIX + id, stored);
+    });
   }
 
   ngOnInit(): void {
@@ -71,10 +84,17 @@ export class CustomerOrderComponent implements OnInit {
     this.route.paramMap.subscribe(params => {
       const id = params.get('stallId');
       if (id) {
+        this.restoreCart(id);
         this.stallId.set(id);
         this.loadStallData(id);
       }
     });
+  }
+
+  private restoreCart(id: string): void {
+    const stored = readStored<StoredCart>(CART_STORAGE_KEY_PREFIX + id);
+    this.cart.set(Array.isArray(stored?.items) ? stored.items : []);
+    if (stored?.diningOption) this.diningOption.set(stored.diningOption);
   }
 
   loadStallData(id: string): void {

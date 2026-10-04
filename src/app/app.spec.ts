@@ -10,6 +10,7 @@ import { App } from './app';
 import { routes } from './app.routes';
 import { restoreCustomerSession } from './app.config';
 import { CustomerService } from './core/services/customer.service';
+import { CART_STORAGE_KEY_PREFIX, GUEST_STATE_STORAGE_KEY } from './core/services/browser-storage';
 import { AuthService } from './core/services/auth.service';
 import { CognitoService, LOCALSTACK_COGNITO_ENDPOINT } from './core/services/cognito.service';
 import {
@@ -70,6 +71,7 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
   afterEach(() => {
     const remaining = httpMock.match(() => true);
     remaining.forEach(r => r.flush({}));
+    localStorage.clear();
     httpMock.verify();
   });
 
@@ -1705,6 +1707,108 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     expect(restored).toBe(false);
     expect(customerService.currentCustomer()).toBeNull();
     httpMock.expectNone(r => r.url.includes('/customer/user/'));
+  });
+
+  describe('guest state across a page reload', () => {
+    const guestOrder = (id: string, status: Order['status'], createdAt: string): Order => ({
+      id,
+      orderNumber: `HF-${id}`,
+      dailySequence: Number(id),
+      diningOption: 'dine_in',
+      items: [],
+      subtotal: 12,
+      takeawayFee: 0,
+      tax: 0,
+      discount: 0,
+      total: 12,
+      paymentMethod: 'paynow',
+      paymentStatus: 'paid',
+      status,
+      createdAt
+    });
+
+    const reloadAsGuest = () => {
+      vi.spyOn(cognitoService, 'restoreSession').mockReturnValue(of({ success: false, isSignedIn: false }));
+      return new Promise<boolean>(resolve => {
+        customerService.restoreSession().subscribe(resolve);
+      });
+    };
+
+    it('should save a guest and their orders to localStorage', async () => {
+      await reloadAsGuest();
+      customerService.continueAsGuest('Mei Ling', '91234567');
+      customerService.recordCustomerOrder(guestOrder('7', 'pending', new Date().toISOString()), 'stall-1', 'Stall', '🍲');
+      TestBed.tick();
+
+      const stored = JSON.parse(localStorage.getItem(GUEST_STATE_STORAGE_KEY)!);
+      expect(stored.customer.name).toBe('Mei Ling');
+      expect(stored.orders.map((o: Order) => o.id)).toEqual(['7']);
+    });
+
+    it('should restore a guest and their orders, dropping finished orders older than a day', async () => {
+      const now = new Date().toISOString();
+      const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+      localStorage.setItem(GUEST_STATE_STORAGE_KEY, JSON.stringify({
+        customer: { id: 'guest-1', name: 'Mei Ling', isGuest: true, loyaltyPoints: 0, tier: 'Bronze Kaki', avatarEmoji: '🥢', registeredAt: now },
+        orders: [
+          guestOrder('7', 'pending', twoDaysAgo),
+          guestOrder('8', 'completed', now),
+          guestOrder('9', 'completed', twoDaysAgo)
+        ]
+      }));
+
+      const restored = await reloadAsGuest();
+
+      expect(restored).toBe(false);
+      expect(customerService.currentCustomer()?.name).toBe('Mei Ling');
+      expect(customerService.isGuest()).toBe(true);
+      expect(customerService.customerOrders().map(o => o.id)).toEqual(['7', '8']);
+    });
+
+    it('should not save a signed-in diner to guest storage', async () => {
+      vi.spyOn(cognitoService, 'restoreSession').mockReturnValue(of({
+        success: true,
+        isSignedIn: true,
+        userSub: 'sub-123',
+        user: { username: 'diner@example.com' }
+      }));
+      const restore = new Promise<boolean>(resolve => {
+        customerService.restoreSession().subscribe(resolve);
+      });
+      httpMock.match(r => r.url.includes('/customer/user/')).forEach(r => r.flush({}));
+      expect(await restore).toBe(true);
+      TestBed.tick();
+
+      expect(localStorage.getItem(GUEST_STATE_STORAGE_KEY)).toBeNull();
+    });
+
+    it('should restore the basket for a stall from localStorage', async () => {
+      const { CustomerOrderComponent } = await import('./features/order/customer-order.component');
+      const item = {
+        id: 'cart-1',
+        menuItemId: '1',
+        name: 'Steamed Chicken Rice',
+        basePrice: 4.5,
+        quantity: 2,
+        selectedModifiers: [],
+        unitPriceWithModifiers: 4.5,
+        totalPrice: 9
+      };
+      localStorage.setItem(CART_STORAGE_KEY_PREFIX + '3', JSON.stringify({ items: [item], diningOption: 'takeaway' }));
+
+      const fixture = TestBed.createComponent(CustomerOrderComponent);
+      const comp = fixture.componentInstance as any;
+      comp.restoreCart('3');
+
+      expect(comp.cart()).toEqual([item]);
+      expect(comp.diningOption()).toBe('takeaway');
+
+      comp.stallId.set('3');
+      comp.cart.set([]);
+      TestBed.tick();
+
+      expect(JSON.parse(localStorage.getItem(CART_STORAGE_KEY_PREFIX + '3')!).items).toEqual([]);
+    });
   });
 });
 

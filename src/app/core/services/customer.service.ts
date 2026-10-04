@@ -1,10 +1,11 @@
-import { Injectable, signal, computed, inject } from '@angular/core';
+import { Injectable, signal, computed, effect, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { Observable, of, tap, catchError, map, switchMap } from 'rxjs';
 import { CustomerUser, CustomerVoucher, CustomerStampCard, CustomerTier } from '../models/customer.model';
 import { Order, OrderItem, OrderStatus } from '../models/order.model';
 import { CognitoAuthTokens, CognitoService } from './cognito.service';
 import { HawkerApiService } from './hawker-api.service';
+import { GUEST_STATE_STORAGE_KEY, readStored, writeStored } from './browser-storage';
 import {
   BackendCustomerRegisterPayload,
   BackendCheckAccountPayload,
@@ -15,6 +16,14 @@ import {
   BackendPastOrderDish,
   BackendPastOrdersWrapper
 } from '../models/hawker-api.model';
+
+// Finished guest orders older than this are dropped when the page loads.
+export const GUEST_ORDER_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+interface StoredGuestState {
+  customer: CustomerUser | null;
+  orders: Order[];
+}
 
 @Injectable({
   providedIn: 'root'
@@ -47,6 +56,22 @@ export class CustomerService {
 
   readonly activeCustomerOrders = computed(() => {
     return this.customerOrders().filter(o => o.status === 'pending' || o.status === 'preparing' || o.status === 'ready');
+  });
+
+  // Set once restoreSession has decided whether this is a signed-in diner or a
+  // guest, so the effect below cannot overwrite stored guest state before it is read.
+  private readonly guestStateReady = signal<boolean>(false);
+
+  /**
+   * Keeps a guest's identity and orders in localStorage so a page reload does
+   * not lose them. Signed-in diners are skipped: theirs come from the backend.
+   */
+  private readonly persistGuestState = effect(() => {
+    const ready = this.guestStateReady();
+    const customer = this.currentCustomer();
+    const orders = this.customerOrders();
+    if (!ready || (customer && !customer.isGuest)) return;
+    writeStored(GUEST_STATE_STORAGE_KEY, { customer, orders } satisfies StoredGuestState);
   });
 
   continueAsGuest(name?: string, phone?: string): CustomerUser {
@@ -452,8 +477,30 @@ export class CustomerService {
         const loginId = res.user?.signInDetails?.loginId || res.user?.username || res.userSub;
         const user = this.buildSignedInUser(loginId, res.userSub, res.tokens);
         return this.loadCustomerDetails(user).pipe(map(() => true));
+      }),
+      tap(restored => {
+        if (!restored) this.restoreGuestState();
+        this.guestStateReady.set(true);
       })
     );
+  }
+
+  /**
+   * Reloads a guest's identity and orders saved by persistGuestState. Orders
+   * still in progress are always kept; finished ones only for a day.
+   */
+  private restoreGuestState(): void {
+    const stored = readStored<StoredGuestState>(GUEST_STATE_STORAGE_KEY);
+    if (!stored) return;
+
+    const cutoff = Date.now() - GUEST_ORDER_RETENTION_MS;
+    const orders = (Array.isArray(stored.orders) ? stored.orders : []).filter(o => {
+      const isActive = o.status === 'pending' || o.status === 'preparing' || o.status === 'ready';
+      return isActive || new Date(o.createdAt).getTime() >= cutoff;
+    });
+
+    if (stored.customer?.isGuest) this.currentCustomer.set(stored.customer);
+    this.customerOrders.set(orders);
   }
 
   private buildSignedInUser(loginId: string, custSub: string, tokens?: CognitoAuthTokens): CustomerUser {
