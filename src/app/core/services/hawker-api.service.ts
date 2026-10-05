@@ -37,7 +37,7 @@ export class HawkerApiService {
 
   /**
    * Update customer order status and details in backend Customer Service.
-   * POST http://localhost:8081/hawkerflow/v1/customer/user/update_order
+   * POST /customer/v1/customer/user/update_order
    */
   updateCustomerOrder(payload: BackendUpdateCustomerOrderPayload): Observable<any> {
     if (
@@ -53,7 +53,7 @@ export class HawkerApiService {
 
   /**
    * Get customer details by customer sub from backend Customer Service.
-   * GET http://localhost:8081/hawkerflow/v1/customer/user/{cust_sub}
+   * GET /customer/v1/customer/user/{cust_sub}
    */
   getCustomerDetails(custSub: string): Observable<BackendCustomerDetailResponse> {
     if (!custSub || custSub === 'guest' || custSub.startsWith('guest-') || custSub.startsWith('cust-guest')) {
@@ -65,7 +65,7 @@ export class HawkerApiService {
 
   /**
    * Checks if an account already exists with the given phone number or email.
-   * POST http://localhost:8081/hawkerflow/v1/customer/check_account_exist
+   * POST /customer/v1/customer/check_account_exist
    */
   checkAccountExists(payload: BackendCheckAccountPayload): Observable<BackendCheckAccountResponse | any> {
     return this.http.post<BackendCheckAccountResponse | any>(CUSTOMER_CHECK_ACCOUNT_API_URL, payload);
@@ -73,7 +73,7 @@ export class HawkerApiService {
 
   /**
    * Register customer in backend Customer Service.
-   * POST http://localhost:8081/hawkerflow/v1/customer/register
+   * POST /customer/v1/customer/register
    */
   registerCustomer(payload: BackendCustomerRegisterPayload): Observable<any> {
     return this.http.post<any>(CUSTOMER_REGISTER_API_URL, payload);
@@ -81,7 +81,7 @@ export class HawkerApiService {
 
   /**
    * Fetch all hawker stalls and their menu items from the backend.
-   * GET http://localhost:8080/hawkerflow/v1/hawker/stalls
+   * GET /hawker/v1/hawker/stalls
    */
   getStalls(): Observable<StallAccount[]> {
     return this.http.get<BackendStallsResponse>(HAWKER_STALLS_API_URL).pipe(
@@ -91,7 +91,7 @@ export class HawkerApiService {
 
   /**
    * Submit a new customer order to the backend order service.
-   * POST http://localhost:8082/hawkerflow/v1/order/orders
+   * POST /order/v1/order/orders
    */
   createOrder(payload: BackendCreateOrderPayload): Observable<BackendCreateOrderResponse> {
     return this.http.post<BackendCreateOrderResponse>(ORDER_SUBMIT_API_URL, payload);
@@ -99,7 +99,7 @@ export class HawkerApiService {
 
   /**
    * Place a diner order through the order service's queue.
-   * POST http://localhost:8082/hawkerflow/v1/order/orders/queue answers with an
+   * POST /order/v1/order/orders/queue answers with an
    * order_ref; GET .../orders/queue/{order_ref} is polled until the SQS worker
    * has created the order. Emits the same shape as createOrder.
    *

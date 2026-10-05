@@ -50,7 +50,7 @@ export class OrderNotificationService implements OnDestroy {
 
   /**
    * Starts periodic polling (default every 10 seconds) of active diner orders
-   * from the backend Order Service (GET http://localhost:8082/hawkerflow/v1/order/orders/{order_id})
+   * from the backend Order Service (GET /order/v1/order/orders/{order_id})
    */
   startPolling(intervalMs = DEFAULT_ORDER_POLLING_INTERVAL_MS): void {
     if (this.pollingInterval) return;
@@ -71,7 +71,7 @@ export class OrderNotificationService implements OnDestroy {
   }
 
   /**
-   * Queries GET http://localhost:8082/hawkerflow/v1/order/orders/{order_id} for all active diner orders
+   * Queries GET /order/v1/order/orders/{order_id} for all active diner orders
    */
   pollActiveOrders(): void {
     const activeOrders = this.customerService.activeCustomerOrders();
@@ -91,7 +91,7 @@ export class OrderNotificationService implements OnDestroy {
 
   /**
    * Directly fetch live order details from backend service:
-   * GET http://localhost:8082/hawkerflow/v1/order/orders/{order_id}
+   * GET /order/v1/order/orders/{order_id}
    */
   fetchOrderLiveStatus(orderId: string | number): Observable<any> {
     const numericId = parseInt(String(orderId).replace(/\D/g, ''), 10) || orderId;

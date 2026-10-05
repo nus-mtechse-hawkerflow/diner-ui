@@ -225,7 +225,7 @@ export class OrderService {
 
   /**
    * Submits current cart directly to backend order service:
-   * POST http://localhost:8082/hawkerflow/v1/order/orders
+   * POST /order/v1/order/orders
    */
   submitOrderToBackend(paymentMethod: PaymentMethod, cashTendered?: number, paynowRef?: string) {
     const stall = this.authService.currentStall();

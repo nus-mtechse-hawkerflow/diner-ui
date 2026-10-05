@@ -65,7 +65,7 @@ export class AuthService {
 
   /**
    * Loads hawker stalls dynamically from the backend API:
-   * GET http://localhost:8080/hawkerflow/v1/hawker/stalls
+   * GET /hawker/v1/hawker/stalls
    */
   loadStallsFromBackend(): void {
     this.isLoadingStalls.set(true);

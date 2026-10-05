@@ -323,7 +323,7 @@ export class CustomerService {
             }
 
             if (res.isSignUpComplete) {
-              // Forward customer details to Backend Customer Service (localhost:8081) only when registration completes, including customer sub
+              // Forward customer details to Backend Customer Service only when registration completes, including customer sub
               const backendPayload: BackendCustomerRegisterPayload = {
                 first_name: firstName,
                 last_name: lastName,
@@ -699,7 +699,7 @@ export class CustomerService {
 
   /**
    * Updates order status and synchronizes the change to backend Customer Service:
-   * POST http://localhost:8081/hawkerflow/v1/customer/user/update_order
+   * POST /customer/v1/customer/user/update_order
    */
   updateOrderStatus(orderId: string | number, status: OrderStatus): void {
     const idStr = String(orderId);
@@ -751,7 +751,7 @@ export class CustomerService {
   }
 
   /**
-   * Sends POST http://localhost:8081/hawkerflow/v1/customer/user/update_order
+   * Sends POST /customer/v1/customer/user/update_order
    * with the exact requested payload structure:
    * {
    *   "order_id": 0,

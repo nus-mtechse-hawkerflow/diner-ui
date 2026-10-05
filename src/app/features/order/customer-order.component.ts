@@ -303,7 +303,7 @@ export class CustomerOrderComponent implements OnInit {
       takeaway_fee: this.takeawayFee()
     };
 
-    // Queue via POST http://localhost:8082/hawkerflow/v1/order/orders/queue, then wait for the order_id
+    // Queue via POST /order/v1/order/orders/queue, then wait for the order_id
     this.hawkerApiService.placeOrder(backendPayload).subscribe({
       next: (response) => {
         this.isSubmittingOrder.set(false);
