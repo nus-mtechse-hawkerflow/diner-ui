@@ -35,6 +35,17 @@ import { Order } from './core/models/order.model';
 import { diningFromBackendOrder } from './features/order-tracker/customer-order-tracker.component';
 import { BackendCreateOrderPayload, BackendStallsResponse, BackendUpdateCustomerOrderPayload } from './core/models/hawker-api.model';
 
+// What API Gateway answers when it has put an order on the queue: SQS's own receipt
+const SQS_RECEIPT = '<?xml version="1.0"?><SendMessageResponse><SendMessageResult>'
+  + '<MessageId>e0e47b26</MessageId></SendMessageResult></SendMessageResponse>';
+
+/** Accepts the queued order the way API Gateway does and returns the order_ref the app chose. */
+function acceptQueuedOrder(httpMock: HttpTestingController): string {
+  const queueReq = httpMock.expectOne(ORDER_QUEUE_API_URL);
+  queueReq.flush(SQS_RECEIPT);
+  return JSON.parse(queueReq.request.body).order_ref;
+}
+
 describe('HawkerFlow Diner App & Loyalty System', () => {
   let customerService: CustomerService;
   let cognitoService: CognitoService;
@@ -1352,11 +1363,10 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     component.onCustomerPaymentComplete({ method: 'paynow' });
 
     // The order goes through order_queue, then its order_id is looked up
-    httpMock.expectOne(ORDER_QUEUE_API_URL)
-      .flush({ order_ref: 'ref-88', status: 'QUEUED' }, { status: 202, statusText: 'Accepted' });
+    const orderRef = acceptQueuedOrder(httpMock);
     await new Promise(resolve => setTimeout(resolve, 0));
-    httpMock.expectOne(`${ORDER_QUEUE_API_URL}/ref-88`)
-      .flush({ order_ref: 'ref-88', order_id: 88, status: 'CREATED' });
+    httpMock.expectOne(`${ORDER_QUEUE_API_URL}/${orderRef}`)
+      .flush({ order_ref: orderRef, order_id: 88, status: 'CREATED' });
 
     // Verify NO call to POST /v1/customer/user/update_order was made
     httpMock.expectNone(r => r.url.includes('/customer/user/update_order'));
@@ -1570,25 +1580,32 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
     beforeEach(() => vi.useFakeTimers());
     afterEach(() => vi.useRealTimers());
 
-    it('should queue the order and poll until the order service has created it', async () => {
+    it('should queue the order under its own reference and poll until the order service has created it', async () => {
       let result: any = null;
       hawkerApiService.placeOrder(payload).subscribe(res => (result = res));
 
+      // API Gateway puts the body on the queue as it is, so it is sent in the
+      // shape the order worker reads, with a reference chosen here.
       const queueReq = httpMock.expectOne(ORDER_QUEUE_API_URL);
+      const sent = JSON.parse(queueReq.request.body);
+      const orderRef: string = sent.order_ref;
       expect(queueReq.request.method).toBe('POST');
-      expect(queueReq.request.body).toEqual(payload);
-      queueReq.flush({ message: 'Order queued', order_ref: 'ref-123', status: 'QUEUED' }, { status: 202, statusText: 'Accepted' });
+      expect(orderRef).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      expect(sent).toEqual({ event_type: 'ORDER_PLACED', order_ref: orderRef, data: payload });
+      // The receipt is SQS's XML, not JSON
+      expect(queueReq.request.responseType).toBe('text');
+      queueReq.flush(SQS_RECEIPT);
 
       // Still queued on the first look-up
       await vi.advanceTimersByTimeAsync(0);
-      httpMock.expectOne(`${ORDER_QUEUE_API_URL}/ref-123`)
-        .flush({ order_ref: 'ref-123', status: 'PENDING' }, { status: 202, statusText: 'Accepted' });
+      httpMock.expectOne(`${ORDER_QUEUE_API_URL}/${orderRef}`)
+        .flush({ order_ref: orderRef, status: 'PENDING' }, { status: 202, statusText: 'Accepted' });
       expect(result).toBeNull();
 
       // Created by the time of the next look-up
       await vi.advanceTimersByTimeAsync(ORDER_QUEUE_POLL_INTERVAL_MS);
-      httpMock.expectOne(`${ORDER_QUEUE_API_URL}/ref-123`)
-        .flush({ order_ref: 'ref-123', order_id: 109, status: 'CREATED' });
+      httpMock.expectOne(`${ORDER_QUEUE_API_URL}/${orderRef}`)
+        .flush({ order_ref: orderRef, order_id: 109, status: 'CREATED' });
 
       expect(result?.order_id).toBe(109);
       expect(result?.order_status).toBe('PENDING');
@@ -1596,7 +1613,32 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
 
       // Polling stops once the order exists
       await vi.advanceTimersByTimeAsync(ORDER_QUEUE_POLL_INTERVAL_MS * 3);
-      httpMock.expectNone(`${ORDER_QUEUE_API_URL}/ref-123`);
+      httpMock.expectNone(`${ORDER_QUEUE_API_URL}/${orderRef}`);
+    });
+
+    it('should send the order in a way a browser posts without asking permission first', () => {
+      hawkerApiService.placeOrder(payload).subscribe();
+
+      // A JSON content type or any custom header makes the browser send a
+      // preflight request, which reaches the order service and fails when it
+      // is down. Plain text with no extra headers is posted straight away.
+      const queueReq = httpMock.expectOne(ORDER_QUEUE_API_URL);
+      expect(typeof queueReq.request.body).toBe('string');
+      expect(queueReq.request.headers.get('Content-Type')).toBe('text/plain');
+      expect(queueReq.request.headers.keys()).toEqual(['Content-Type']);
+      queueReq.flush(SQS_RECEIPT);
+      httpMock.match(r => r.url.startsWith(`${ORDER_QUEUE_API_URL}/`));
+    });
+
+    it('should give every order a different reference', () => {
+      hawkerApiService.placeOrder(payload).subscribe();
+      hawkerApiService.placeOrder(payload).subscribe();
+
+      const [first, second] = httpMock.match(ORDER_QUEUE_API_URL);
+      expect(JSON.parse(first.request.body).order_ref).not.toBe(JSON.parse(second.request.body).order_ref);
+      first.flush(SQS_RECEIPT);
+      second.flush(SQS_RECEIPT);
+      httpMock.match(r => r.url.startsWith(`${ORDER_QUEUE_API_URL}/`));
     });
 
     it('should show "Sending your order" at checkout until the order number arrives', async () => {
@@ -1613,12 +1655,11 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
       const page = fixture.nativeElement as HTMLElement;
       expect(page.textContent).toContain('Sending your order');
       httpMock.expectNone(ORDER_SUBMIT_API_URL);
-      httpMock.expectOne(ORDER_QUEUE_API_URL)
-        .flush({ order_ref: 'ref-789', status: 'QUEUED' }, { status: 202, statusText: 'Accepted' });
+      const orderRef = acceptQueuedOrder(httpMock);
 
       await vi.advanceTimersByTimeAsync(0);
-      httpMock.expectOne(`${ORDER_QUEUE_API_URL}/ref-789`)
-        .flush({ order_ref: 'ref-789', order_id: 109, status: 'CREATED' });
+      httpMock.expectOne(`${ORDER_QUEUE_API_URL}/${orderRef}`)
+        .flush({ order_ref: orderRef, order_id: 109, status: 'CREATED' });
       fixture.detectChanges();
 
       expect(page.textContent).not.toContain('Sending your order');
@@ -1655,16 +1696,15 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
       let error: any = null;
       hawkerApiService.placeOrder(payload).subscribe({ next: res => (result = res), error: err => (error = err) });
 
-      httpMock.expectOne(ORDER_QUEUE_API_URL)
-        .flush({ order_ref: 'ref-456', status: 'QUEUED' }, { status: 202, statusText: 'Accepted' });
+      const orderRef = acceptQueuedOrder(httpMock);
 
       await vi.advanceTimersByTimeAsync(0);
-      httpMock.expectOne(`${ORDER_QUEUE_API_URL}/ref-456`)
+      httpMock.expectOne(`${ORDER_QUEUE_API_URL}/${orderRef}`)
         .flush({ detail: 'Bad gateway' }, { status: 502, statusText: 'Bad Gateway' });
 
       await vi.advanceTimersByTimeAsync(ORDER_QUEUE_POLL_INTERVAL_MS);
-      httpMock.expectOne(`${ORDER_QUEUE_API_URL}/ref-456`)
-        .flush({ order_ref: 'ref-456', order_id: 110, status: 'CREATED' });
+      httpMock.expectOne(`${ORDER_QUEUE_API_URL}/${orderRef}`)
+        .flush({ order_ref: orderRef, order_id: 110, status: 'CREATED' });
 
       expect(error).toBeNull();
       expect(result?.order_id).toBe(110);
@@ -1672,38 +1712,39 @@ describe('HawkerFlow Diner App & Loyalty System', () => {
       httpMock.expectNone(ORDER_SUBMIT_API_URL);
     });
 
-    it('should fall back to a direct order when the order queue is unavailable', async () => {
+    it('should report an order the queue refused, without sending it another way', async () => {
       let result: any = null;
-      hawkerApiService.placeOrder(payload).subscribe(res => (result = res));
+      let error: any = null;
+      hawkerApiService.placeOrder(payload).subscribe({ next: res => (result = res), error: err => (error = err) });
 
       httpMock.expectOne(ORDER_QUEUE_API_URL)
-        .flush({ detail: 'Order queue is not configured' }, { status: 503, statusText: 'Service Unavailable' });
+        .flush('Service Unavailable', { status: 503, statusText: 'Service Unavailable' });
 
-      const directReq = httpMock.expectOne(ORDER_SUBMIT_API_URL);
-      expect(directReq.request.body).toEqual(payload);
-      directReq.flush({ message: 'Order submitted', order_id: 42, total_price: 4.5, order_status: 'PENDING', order_created_at: '2026-09-27 16:00:00' });
-
-      expect(result?.order_id).toBe(42);
+      expect(result).toBeNull();
+      expect(error?.status).toBe(503);
+      // A refused send may still have reached the queue; a direct order could double it.
+      httpMock.expectNone(ORDER_SUBMIT_API_URL);
+      await vi.advanceTimersByTimeAsync(ORDER_QUEUE_POLL_INTERVAL_MS * 3);
+      httpMock.expectNone(r => r.url.startsWith(`${ORDER_QUEUE_API_URL}/`));
     });
 
     it('should give up with an error when the order is never created', async () => {
       let error: any = null;
       hawkerApiService.placeOrder(payload).subscribe({ error: err => (error = err) });
 
-      httpMock.expectOne(ORDER_QUEUE_API_URL)
-        .flush({ order_ref: 'ref-stuck', status: 'QUEUED' }, { status: 202, statusText: 'Accepted' });
+      const orderRef = acceptQueuedOrder(httpMock);
 
       // The order service keeps answering PENDING until the time limit runs out.
       for (let elapsed = 0; elapsed <= ORDER_QUEUE_TIMEOUT_MS && !error; elapsed += ORDER_QUEUE_POLL_INTERVAL_MS) {
         await vi.advanceTimersByTimeAsync(elapsed === 0 ? 0 : ORDER_QUEUE_POLL_INTERVAL_MS);
-        httpMock.match(`${ORDER_QUEUE_API_URL}/ref-stuck`)
-          .forEach(r => r.flush({ order_ref: 'ref-stuck', status: 'PENDING' }, { status: 202, statusText: 'Accepted' }));
+        httpMock.match(`${ORDER_QUEUE_API_URL}/${orderRef}`)
+          .forEach(r => r.flush({ order_ref: orderRef, status: 'PENDING' }, { status: 202, statusText: 'Accepted' }));
       }
 
       expect(error?.name).toBe('TimeoutError');
       // Once it gives up it stops polling.
       await vi.advanceTimersByTimeAsync(ORDER_QUEUE_POLL_INTERVAL_MS * 3);
-      httpMock.expectNone(`${ORDER_QUEUE_API_URL}/ref-stuck`);
+      httpMock.expectNone(`${ORDER_QUEUE_API_URL}/${orderRef}`);
     });
   });
 

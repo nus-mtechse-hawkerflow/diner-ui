@@ -1,10 +1,10 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Observable, of, map, catchError, exhaustMap, first, switchMap, throwError, timeout, timer } from 'rxjs';
+import { HttpClient } from '@angular/common/http';
+import { Observable, of, map, catchError, exhaustMap, first, switchMap, timeout, timer } from 'rxjs';
 import {
   BackendCreateOrderPayload,
   BackendCreateOrderResponse,
-  BackendQueueOrderResponse,
+  BackendQueuedOrderMessage,
   BackendQueuedOrderStatus,
   BackendCustomerRegisterPayload,
   BackendCheckAccountPayload,
@@ -98,26 +98,33 @@ export class HawkerApiService {
   }
 
   /**
-   * Place a diner order through the order service's queue.
-   * POST /order/v1/order/orders/queue answers with an
-   * order_ref; GET .../orders/queue/{order_ref} is polled until the SQS worker
-   * has created the order. Emits the same shape as createOrder.
+   * Place a diner order on the order queue.
+   * POST /order/v1/order/orders/queue is answered by API Gateway, which puts
+   * the body on the queue as it is, so the order is sent in the shape the
+   * order worker reads, under an order_ref chosen here. It goes as plain
+   * text with no extra headers so the browser posts it without a preflight
+   * request: a preflight reaches the order service, and would stop diners
+   * ordering while that service is down. GET
+   * .../orders/queue/{order_ref} is then polled until the worker has created
+   * the order. Emits the same shape as createOrder.
    *
-   * Falls back to createOrder only when the queue endpoint itself is
-   * unavailable (503: SQS disabled, 404: older order service). Once an order is
-   * queued it is never re-submitted, which would create it twice.
+   * An order the queue refuses is reported as an error and never sent another
+   * way: it may have been queued all the same, and a second send would create
+   * it twice.
    */
   placeOrder(payload: BackendCreateOrderPayload): Observable<BackendCreateOrderResponse> {
-    return this.http.post<BackendQueueOrderResponse>(ORDER_QUEUE_API_URL, payload).pipe(
-      catchError(err => {
-        if (err instanceof HttpErrorResponse && (err.status === 503 || err.status === 404)) {
-          return of(null);
-        }
-        return throwError(() => err);
-      }),
-      switchMap(queued => queued
-        ? this.awaitQueuedOrder(queued.order_ref, payload.total_price)
-        : this.createOrder(payload))
+    const message: BackendQueuedOrderMessage = {
+      event_type: 'ORDER_PLACED',
+      order_ref: crypto.randomUUID(),
+      data: payload
+    };
+
+    // The receipt is SQS's own XML, which says nothing the app needs
+    return this.http.post(ORDER_QUEUE_API_URL, JSON.stringify(message), {
+      headers: { 'Content-Type': 'text/plain' },
+      responseType: 'text'
+    }).pipe(
+      switchMap(() => this.awaitQueuedOrder(message.order_ref, payload.total_price))
     );
   }
 

@@ -52,10 +52,11 @@ export interface BackendCreateOrderResponse {
   order_created_at: string;
 }
 
-export interface BackendQueueOrderResponse {
-  message: string;
+/** The message the order worker reads off the order queue. */
+export interface BackendQueuedOrderMessage {
+  event_type: 'ORDER_PLACED';
   order_ref: string;
-  status: 'QUEUED';
+  data: BackendCreateOrderPayload;
 }
 
 export interface BackendQueuedOrderStatus {
