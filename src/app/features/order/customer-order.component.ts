@@ -1,17 +1,24 @@
-import { Component, inject, signal, computed, OnInit } from '@angular/core';
+import { Component, inject, signal, computed, OnInit, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 import { CustomerService } from '../../core/services/customer.service';
 import { OrderService } from '../../core/services/order.service';
+import { HawkerApiService } from '../../core/services/hawker-api.service';
 import { StallAccount } from '../../core/models/auth.model';
 import { Category, MenuItem } from '../../core/models/menu.model';
 import { DiningOption, Order, OrderItem, PaymentMethod, SelectedModifier } from '../../core/models/order.model';
-import { CustomerVoucher } from '../../core/models/customer.model';
+import { BackendCreateOrderPayload, BackendDishOrder } from '../../core/models/hawker-api.model';
 import { ModifierModalComponent } from '../../shared/components/modifier-modal/modifier-modal.component';
 import { PaymentModalComponent } from '../../shared/components/payment-modal/payment-modal.component';
 import { IconComponent } from '../../shared/components/icon/icon.component';
+import { CART_STORAGE_KEY_PREFIX, readStored, writeStored } from '../../core/services/browser-storage';
+
+interface StoredCart {
+  items: OrderItem[];
+  diningOption: DiningOption;
+}
 
 @Component({
   selector: 'app-customer-order',
@@ -32,6 +39,7 @@ export class CustomerOrderComponent implements OnInit {
   private authService = inject(AuthService);
   private customerService = inject(CustomerService);
   private orderService = inject(OrderService);
+  private hawkerApiService = inject(HawkerApiService);
 
   stallId = signal<string>('');
   currentStall = signal<StallAccount | null>(null);
@@ -41,46 +49,75 @@ export class CustomerOrderComponent implements OnInit {
   selectedCategory = signal<string>('all');
 
   diningOption = signal<DiningOption>('dine_in');
-  tableNumber = 'Table 04';
 
   cart = signal<OrderItem[]>([]);
   selectedItemForModifier = signal<MenuItem | null>(null);
-  showVoucherDrawer = signal<boolean>(false);
   showCartModal = signal<boolean>(false);
   showPaymentModal = signal<boolean>(false);
+  isSubmittingOrder = signal<boolean>(false);
+  orderDelayed = signal<boolean>(false);
 
-  readonly appliedVoucher = this.customerService.appliedVoucher;
-  readonly vouchers = this.customerService.vouchers;
+  readonly isLoadingStalls = this.authService.isLoadingStalls;
+
+  constructor() {
+    // When stalls are loaded or updated from backend, refresh current stall info if active
+    effect(() => {
+      const id = this.stallId();
+      const stalls = this.authService.allStalls();
+      if (id && stalls.length > 0) {
+        this.loadStallData(id);
+      }
+    });
+
+    // Keep each stall's basket in localStorage so a page reload does not empty it
+    effect(() => {
+      const id = this.stallId();
+      const stored: StoredCart = { items: this.cart(), diningOption: this.diningOption() };
+      if (id) writeStored(CART_STORAGE_KEY_PREFIX + id, stored);
+    });
+  }
 
   ngOnInit(): void {
+    if (this.authService.allStalls().length === 0) {
+      this.authService.loadStallsFromBackend();
+    }
     this.route.paramMap.subscribe(params => {
       const id = params.get('stallId');
       if (id) {
+        this.restoreCart(id);
         this.stallId.set(id);
         this.loadStallData(id);
       }
     });
   }
 
+  private restoreCart(id: string): void {
+    const stored = readStored<StoredCart>(CART_STORAGE_KEY_PREFIX + id);
+    this.cart.set(Array.isArray(stored?.items) ? stored.items : []);
+    if (stored?.diningOption) this.diningOption.set(stored.diningOption);
+  }
+
   loadStallData(id: string): void {
     const stalls = this.authService.allStalls();
-    const stall = stalls.find(s => s.id === id) || stalls[0];
+    if (!stalls || stalls.length === 0) return;
+
+    const stall = stalls.find(
+      s => s.id === id || String(s.numericId) === id || s.id === `stall-${id}`
+    ) || stalls[0];
+
+    if (!stall) return;
     this.currentStall.set(stall);
 
-    // Load categories & items from stall or localStorage
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const storedCats = window.localStorage.getItem(`hawkerflow_categories_${stall.id}`);
-        const storedItems = window.localStorage.getItem(`hawkerflow_menu_${stall.id}`);
-        this.categories.set(storedCats ? JSON.parse(storedCats) : (stall.initialCategories || []));
-        this.items.set(storedItems ? JSON.parse(storedItems) : (stall.initialMenuItems || []));
-      } else {
-        this.categories.set(stall.initialCategories || []);
-        this.items.set(stall.initialMenuItems || []);
-      }
-    } catch (e) {
-      this.categories.set(stall.initialCategories || []);
-      this.items.set(stall.initialMenuItems || []);
+    // If stall has initial categories & items directly from backend API
+    if (stall.initialCategories && stall.initialCategories.length > 0) {
+      this.categories.set(stall.initialCategories);
+    } else {
+      this.categories.set([]);
+    }
+    if (stall.initialMenuItems && stall.initialMenuItems.length > 0) {
+      this.items.set(stall.initialMenuItems);
+    } else {
+      this.items.set([]);
     }
   }
 
@@ -101,18 +138,40 @@ export class CustomerOrderComponent implements OnInit {
   }
 
   addSimpleItem(item: MenuItem): void {
-    const orderItem: OrderItem = {
-      id: 'cart-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
-      menuItemId: item.id,
-      name: item.name,
-      chineseName: item.chineseName,
-      basePrice: item.basePrice,
-      quantity: 1,
-      selectedModifiers: [],
-      unitPriceWithModifiers: item.basePrice,
-      totalPrice: item.basePrice
-    };
-    this.cart.update(list => [...list, orderItem]);
+    const numericDishId = item.numericDishId ?? (parseInt(item.id, 10) || undefined);
+    const existingIndex = this.cart().findIndex(
+      cartItem => (cartItem.menuItemId === item.id || (numericDishId && cartItem.numericDishId === numericDishId)) &&
+        (!cartItem.selectedModifiers || cartItem.selectedModifiers.length === 0) &&
+        !cartItem.specialNotes
+    );
+
+    if (existingIndex > -1) {
+      this.cart.update(list => {
+        const copy = [...list];
+        const existing = copy[existingIndex];
+        const newQty = existing.quantity + 1;
+        copy[existingIndex] = {
+          ...existing,
+          quantity: newQty,
+          totalPrice: Number((newQty * existing.unitPriceWithModifiers).toFixed(2))
+        };
+        return copy;
+      });
+    } else {
+      const orderItem: OrderItem = {
+        id: 'cart-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+        menuItemId: item.id,
+        numericDishId,
+        name: item.name,
+        chineseName: item.chineseName,
+        basePrice: item.basePrice,
+        quantity: 1,
+        selectedModifiers: [],
+        unitPriceWithModifiers: item.basePrice,
+        totalPrice: item.basePrice
+      };
+      this.cart.update(list => [...list, orderItem]);
+    }
   }
 
   onAddCustomizedItem(event: {
@@ -121,21 +180,46 @@ export class CustomerOrderComponent implements OnInit {
     quantity: number;
     specialNotes: string;
   }): void {
-    const modTotal = event.selectedModifiers.reduce((sum, m) => sum + m.priceDelta, 0);
+    const modTotal = (event.selectedModifiers || []).reduce((sum, m) => sum + m.priceDelta, 0);
     const unitPrice = event.item.basePrice + modTotal;
-    const orderItem: OrderItem = {
-      id: 'cart-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
-      menuItemId: event.item.id,
-      name: event.item.name,
-      chineseName: event.item.chineseName,
-      basePrice: event.item.basePrice,
-      quantity: event.quantity,
-      selectedModifiers: event.selectedModifiers,
-      unitPriceWithModifiers: unitPrice,
-      totalPrice: unitPrice * event.quantity,
-      specialNotes: event.specialNotes || undefined
-    };
-    this.cart.update(list => [...list, orderItem]);
+    const numericDishId = event.item.numericDishId ?? (parseInt(event.item.id, 10) || undefined);
+    const specialNotes = event.specialNotes?.trim() || '';
+    const modifierKey = (event.selectedModifiers || []).map(m => m.optionId).sort().join('_') + '_' + specialNotes;
+
+    const existingIndex = this.cart().findIndex(cartItem => {
+      const isDishMatch = cartItem.menuItemId === event.item.id || (numericDishId && cartItem.numericDishId === numericDishId);
+      const cartModKey = (cartItem.selectedModifiers || []).map(m => m.optionId).sort().join('_') + '_' + (cartItem.specialNotes?.trim() || '');
+      return isDishMatch && cartModKey === modifierKey;
+    });
+
+    if (existingIndex > -1) {
+      this.cart.update(list => {
+        const copy = [...list];
+        const existing = copy[existingIndex];
+        const newQty = existing.quantity + event.quantity;
+        copy[existingIndex] = {
+          ...existing,
+          quantity: newQty,
+          totalPrice: Number((newQty * unitPrice).toFixed(2))
+        };
+        return copy;
+      });
+    } else {
+      const orderItem: OrderItem = {
+        id: 'cart-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+        menuItemId: event.item.id,
+        numericDishId,
+        name: event.item.name,
+        chineseName: event.item.chineseName,
+        basePrice: event.item.basePrice,
+        quantity: event.quantity,
+        selectedModifiers: event.selectedModifiers || [],
+        unitPriceWithModifiers: unitPrice,
+        totalPrice: Number((unitPrice * event.quantity).toFixed(2)),
+        specialNotes: specialNotes || undefined
+      };
+      this.cart.update(list => [...list, orderItem]);
+    }
   }
 
   updateQuantity(index: number, delta: number): void {
@@ -171,37 +255,16 @@ export class CustomerOrderComponent implements OnInit {
     return this.diningOption() === 'takeaway' ? 0.30 : 0;
   });
 
-  readonly discountAmount = computed(() => {
-    const voucher = this.appliedVoucher();
-    const subtotal = this.rawSubtotal();
-    if (!voucher || subtotal === 0) return 0;
-
-    if (voucher.minSpend && subtotal < voucher.minSpend) return 0;
-
-    if (voucher.discountType === 'fixed') {
-      return Math.min(voucher.discountValue, subtotal);
-    }
-    if (voucher.discountType === 'percentage') {
-      return Number(((subtotal * voucher.discountValue) / 100).toFixed(2));
-    }
-    return 0;
-  });
-
   readonly grandTotal = computed(() => {
     const sub = this.rawSubtotal();
     const take = this.takeawayFee();
-    const disc = this.discountAmount();
-    return Math.max(0, Number((sub + take - disc).toFixed(2)));
+    return Math.max(0, Number((sub + take).toFixed(2)));
   });
 
-  onSelectVoucher(vouch: CustomerVoucher): void {
-    if (vouch.isUsed) return;
-    this.customerService.applyVoucher(vouch);
-    this.showVoucherDrawer.set(false);
-  }
-
-  removeVoucher(): void {
-    this.customerService.removeVoucher();
+  proceedToPayment(): void {
+    if (this.cart().length === 0) return;
+    this.showCartModal.set(false);
+    this.showPaymentModal.set(true);
   }
 
   onCustomerPaymentComplete(event: {
@@ -209,53 +272,120 @@ export class CustomerOrderComponent implements OnInit {
     cashTendered?: number;
     paynowRef?: string;
   }): void {
+    if (this.cart().length === 0) return;
     this.showPaymentModal.set(false);
     this.showCartModal.set(false);
 
     const stall = this.currentStall();
     if (!stall) return;
 
-    const orderId = 'ord-' + Date.now();
-    const seq = Math.floor(100 + Math.random() * 900);
-    const orderNumber = `HF-${seq}`;
+    this.isSubmittingOrder.set(true);
 
-    const newOrder: Order = {
-      id: orderId,
-      orderNumber,
-      dailySequence: seq,
-      diningOption: this.diningOption(),
-      tableOrBuzzerNumber: this.diningOption() === 'dine_in' ? this.tableNumber : 'Takeaway Pickup',
-      items: this.cart(),
-      subtotal: this.rawSubtotal(),
-      takeawayFee: this.takeawayFee(),
-      tax: 0,
-      discount: this.discountAmount(),
-      total: this.grandTotal(),
-      paymentMethod: event.method,
-      paymentStatus: 'paid',
-      cashTendered: event.cashTendered,
-      paynowRef: event.paynowRef || 'PN-' + Math.floor(10000000 + Math.random() * 90000000),
-      status: 'pending',
-      createdAt: new Date().toISOString()
+    const stallNumericId = stall.numericId ?? (parseInt(stall.id, 10) || 1);
+    const dishes: BackendDishOrder[] = this.cart().map(item => ({
+      dish_id: item.numericDishId ?? (parseInt(item.menuItemId, 10) || 1),
+      dish_name: item.name,
+      quantity: item.quantity,
+      // Unit price: the order service multiplies by quantity for the stall subtotal
+      price: Number(item.unitPriceWithModifiers.toFixed(2))
+    }));
+
+    const grandTotal = this.grandTotal();
+    const backendPayload: BackendCreateOrderPayload = {
+      orders: [
+        {
+          stall_id: stallNumericId,
+          dishes
+        }
+      ],
+      total_price: grandTotal,
+      dining_option: this.diningOption(),
+      takeaway_fee: this.takeawayFee()
     };
 
-    // 1. Record in stall's KDS orders storage
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const stallOrdersKey = `hawkerflow_orders_${stall.id}`;
-        const stored = window.localStorage.getItem(stallOrdersKey);
-        const list: Order[] = stored ? JSON.parse(stored) : [];
-        list.unshift(newOrder);
-        window.localStorage.setItem(stallOrdersKey, JSON.stringify(list));
-      }
-    } catch (e) {}
+    // Queue via POST /order/v1/order/orders/queue, then wait for the order_id
+    this.hawkerApiService.placeOrder(backendPayload).subscribe({
+      next: (response) => {
+        this.isSubmittingOrder.set(false);
+        const orderId = String(response.order_id);
+        const orderNumber = `HF-${String(response.order_id).padStart(3, '0')}`;
 
-    // 2. Record in Customer Service for loyalty points, stamp cards & order history
-    this.customerService.recordCustomerOrder(newOrder, stall.id, stall.stallName, stall.emoji || '🍲');
+        const newOrder: Order = {
+          id: orderId,
+          numericStallId: stallNumericId,
+          orderNumber,
+          dailySequence: response.order_id,
+          diningOption: this.diningOption(),
+          items: [...this.cart()],
+          subtotal: this.rawSubtotal(),
+          takeawayFee: this.takeawayFee(),
+          tax: 0,
+          discount: 0,
+          total: grandTotal,
+          paymentMethod: event.method,
+          paymentStatus: 'paid',
+          cashTendered: event.cashTendered,
+          paynowRef: event.paynowRef || 'PN-' + Math.floor(10000000 + Math.random() * 90000000),
+          status: (response.order_status?.toLowerCase() as any) || 'pending',
+          createdAt: response.order_created_at || new Date().toISOString()
+        };
+
+        this.finalizeOrderAndNavigate(newOrder, stall);
+      },
+      error: (err) => {
+        this.isSubmittingOrder.set(false);
+
+        // The order was queued but not confirmed in time. It may still reach the
+        // kitchen, so an offline order here would give the diner a made-up
+        // number for a real order. Keep the basket in case it never arrives.
+        if (err?.name === 'TimeoutError') {
+          console.warn('Queued order not confirmed in time:', err);
+          this.orderDelayed.set(true);
+          return;
+        }
+
+        console.warn('Backend order API currently unreachable, falling back to offline order:', err);
+
+        // Fallback local order creation to prevent diner disruption
+        const orderId = 'ord-' + Date.now();
+        const seq = Math.floor(100 + Math.random() * 900);
+        const orderNumber = `HF-${seq}`;
+
+        const fallbackOrder: Order = {
+          id: orderId,
+          numericStallId: stallNumericId,
+          orderNumber,
+          dailySequence: seq,
+          diningOption: this.diningOption(),
+          items: [...this.cart()],
+          subtotal: this.rawSubtotal(),
+          takeawayFee: this.takeawayFee(),
+          tax: 0,
+          discount: 0,
+          total: grandTotal,
+          paymentMethod: event.method,
+          paymentStatus: 'paid',
+          cashTendered: event.cashTendered,
+          paynowRef: event.paynowRef || 'PN-' + Math.floor(10000000 + Math.random() * 90000000),
+          status: 'pending',
+          createdAt: new Date().toISOString()
+        };
+
+        this.finalizeOrderAndNavigate(fallbackOrder, stall);
+      }
+    });
+  }
+
+  private finalizeOrderAndNavigate(order: Order, stall: StallAccount): void {
+    // 1. Record in Customer Service for order history
+    this.customerService.recordCustomerOrder(order, stall.id, stall.stallName, stall.emoji || '🍲');
+
+    // 2. Clear cart
+    this.cart.set([]);
 
     // 3. Navigate to live Order Status Tracker
-    this.router.navigate(['/order-tracker', newOrder.id], {
-      state: { order: newOrder, stallName: stall.stallName, stallEmoji: stall.emoji }
+    this.router.navigate(['/order-tracker', order.id], {
+      state: { order, stallName: stall.stallName, stallEmoji: stall.emoji }
     });
   }
 }
