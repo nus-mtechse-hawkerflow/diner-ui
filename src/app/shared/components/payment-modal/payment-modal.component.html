@@ -9,7 +9,7 @@
         <span class="text-xs font-bold text-orange-600 dark:text-orange-400 uppercase tracking-wider">Checkout</span>
         <div class="flex items-baseline gap-2">
           <h3 class="font-extrabold text-2xl text-slate-900 dark:text-white">
-            \${{ totalAmount.toFixed(2) }}
+            ${{ totalAmount.toFixed(2) }}
           </h3>
           <span class="text-xs text-slate-500 font-medium">SGD</span>
         </div>
@@ -112,7 +112,7 @@
                   (click)="setTendered(denom)"
                   class="py-2.5 px-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold text-xs hover:border-orange-400 transition-colors"
                 >
-                  \${{ denom }}
+                  ${{ denom }}
                 </button>
               }
             </div>
@@ -123,7 +123,7 @@
             <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
               <span class="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block">Cash Tendered</span>
               <div class="text-xl font-mono font-black text-slate-900 dark:text-white mt-1">
-                \${{ cashTendered.toFixed(2) }}
+                ${{ cashTendered.toFixed(2) }}
               </div>
             </div>
 
@@ -133,7 +133,7 @@
                 {{ changeDue >= 0 ? 'Change Due' : 'Insufficient Amount' }}
               </span>
               <div class="text-xl font-mono font-black mt-1">
-                \${{ (changeDue >= 0 ? changeDue : 0).toFixed(2) }}
+                ${{ (changeDue >= 0 ? changeDue : 0).toFixed(2) }}
               </div>
             </div>
           </div>
@@ -190,7 +190,7 @@
               </div>
             </div>
             <div class="mt-2 text-xs font-mono font-bold text-slate-800">
-              \${{ totalAmount.toFixed(2) }} SGD
+              ${{ totalAmount.toFixed(2) }} SGD
             </div>
           </div>
 
@@ -219,7 +219,7 @@
             <p class="text-xs text-slate-500">Ready for customer payment on NETS terminal</p>
           </div>
           <div class="text-xl font-black font-mono text-slate-900 dark:text-white">
-            \${{ totalAmount.toFixed(2) }} SGD
+            ${{ totalAmount.toFixed(2) }} SGD
           </div>
         </div>
       }
@@ -235,7 +235,7 @@
             <p class="text-xs text-slate-500">Visa / Mastercard / Apple Pay / Google Pay</p>
           </div>
           <div class="text-xl font-black font-mono text-slate-900 dark:text-white">
-            \${{ totalAmount.toFixed(2) }} SGD
+            ${{ totalAmount.toFixed(2) }} SGD
           </div>
         </div>
       }
@@ -261,7 +261,7 @@
         class="flex-1 py-3 px-5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-sm shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2 active:scale-[0.99] transition-all cursor-pointer"
       >
         <app-icon name="check-circle" [size]="18"></app-icon>
-        <span>Complete Order (\${{ totalAmount.toFixed(2) }})</span>
+        <span>Complete Order (${{ totalAmount.toFixed(2) }})</span>
       </button>
     </div>
 

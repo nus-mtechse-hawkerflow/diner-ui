@@ -24,16 +24,31 @@ export const routes: Routes = [
         loadComponent: () => import('./features/order/customer-order.component').then(m => m.CustomerOrderComponent)
       },
       {
-        path: 'order-tracker/:orderId',
+        path: 'tracking',
         loadComponent: () => import('./features/order-tracker/customer-order-tracker.component').then(m => m.CustomerOrderTrackerComponent)
       },
       {
+        path: 'tracking/:orderId',
+        loadComponent: () => import('./features/order-tracker/customer-order-tracker.component').then(m => m.CustomerOrderTrackerComponent)
+      },
+      {
+        path: 'order-tracker/:orderId',
+        redirectTo: 'tracking/:orderId',
+        pathMatch: 'full'
+      },
+      {
+        path: 'order-tracker',
+        redirectTo: 'tracking',
+        pathMatch: 'full'
+      },
+      {
         path: 'orders',
-        loadComponent: () => import('./features/profile/customer-profile.component').then(m => m.CustomerProfileComponent)
+        loadComponent: () => import('./features/orders/customer-orders.component').then(m => m.CustomerOrdersComponent)
       },
       {
         path: 'rewards',
-        loadComponent: () => import('./features/rewards/customer-rewards.component').then(m => m.CustomerRewardsComponent)
+        redirectTo: 'stalls',
+        pathMatch: 'full'
       },
       {
         path: 'profile',

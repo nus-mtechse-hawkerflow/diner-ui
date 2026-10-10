@@ -1,7 +1,31 @@
 <div class="max-w-md mx-auto w-full space-y-4 py-2 animate-fade-in">
   
+  <!-- Active Orders Tab Switcher (if multiple active orders exist) -->
+  @if (activeOrders().length > 1) {
+    <div class="p-2 rounded-2xl bg-slate-900 border border-slate-800 space-y-1.5">
+      <span class="text-[11px] font-bold text-slate-400 px-2 uppercase tracking-wider block">
+        Active Hawker Orders ({{ activeOrders().length }})
+      </span>
+      <div class="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+        @for (act of activeOrders(); track act.id) {
+          <button
+            type="button"
+            (click)="selectOrderToTrack(act)"
+            class="px-3 py-1.5 rounded-xl text-xs font-bold border transition-all shrink-0 flex items-center gap-1.5 cursor-pointer"
+            [ngClass]="orderId() === act.id ? 'bg-orange-600 text-white border-orange-500 shadow-md' : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'"
+          >
+            <span>#{{ act.orderNumber }}</span>
+            <span class="w-2 h-2 rounded-full"
+              [ngClass]="act.status === 'ready' ? 'bg-emerald-400 animate-pulse' : (act.status === 'preparing' ? 'bg-blue-400' : 'bg-amber-400')">
+            </span>
+          </button>
+        }
+      </div>
+    </div>
+  }
+
   @if (order()) {
-    <!-- Order Card -->
+    <!-- Main Order Live Tracker Card -->
     <div class="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-2xl space-y-5">
       
       <!-- Top Status Header -->
@@ -11,63 +35,95 @@
         </div>
         <div>
           <h2 class="font-extrabold text-lg text-white">{{ stallName() || 'Hawker Stall' }}</h2>
-          <p class="text-xs text-orange-400 font-bold">Ticket #{{ order()?.orderNumber }}</p>
+          <div class="flex items-center justify-center gap-2 mt-0.5">
+            <span class="text-xs text-orange-400 font-mono font-bold">Ticket #{{ order()?.orderNumber }}</span>
+            <span class="text-slate-600">•</span>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider"
+              [ngClass]="{
+                'bg-amber-500/20 text-amber-300 border border-amber-500/30': currentStatus() === 'pending',
+                'bg-blue-500/20 text-blue-300 border border-blue-500/30': currentStatus() === 'preparing',
+                'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 animate-pulse': currentStatus() === 'ready',
+                'bg-slate-800 text-slate-300 border border-slate-700': currentStatus() === 'completed'
+              }">
+              {{ currentStatus() }}
+            </span>
+          </div>
         </div>
       </div>
 
       <!-- Live Kitchen Stepper Status -->
       <div class="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
         <div class="flex items-center justify-between">
-          <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Live Kitchen Status</span>
-          <span class="text-xs font-mono font-bold text-amber-400 animate-pulse flex items-center gap-1">
-            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
-            <span>Est. ~{{ estimatedMinutes() }} mins</span>
-          </span>
+          <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Live Kitchen Progress</span>
+          @if (currentStatus() !== 'completed') {
+            <span class="text-xs font-mono font-bold text-amber-400 animate-pulse flex items-center gap-1">
+              <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+              <span>Est. ~{{ estimatedMinutes() }} mins</span>
+            </span>
+          } @else {
+            <span class="text-xs font-bold text-emerald-400 flex items-center gap-1">
+              <span>✅ Completed</span>
+            </span>
+          }
         </div>
 
-        <!-- 3-Step Progress Visualizer -->
-        <div class="grid grid-cols-3 gap-2 text-center pt-2">
+        <!-- 4-Step Progress Visualizer -->
+        <div class="grid grid-cols-4 gap-1.5 text-center pt-2">
           
           <!-- Step 1: Received -->
           <div class="space-y-1.5">
-            <div class="w-8 h-8 rounded-full mx-auto flex items-center justify-center text-xs font-black"
+            <div class="w-8 h-8 rounded-full mx-auto flex items-center justify-center text-xs font-black transition-all"
               [ngClass]="stepLevel() >= 1 ? 'bg-orange-500 text-white shadow-md shadow-orange-500/30' : 'bg-slate-800 text-slate-500'">
               1
             </div>
-            <p class="text-[11px] font-bold" [ngClass]="stepLevel() >= 1 ? 'text-white' : 'text-slate-500'">
+            <p class="text-[10px] font-bold" [ngClass]="stepLevel() >= 1 ? 'text-white' : 'text-slate-500'">
               Received
             </p>
           </div>
 
           <!-- Step 2: Cooking -->
           <div class="space-y-1.5">
-            <div class="w-8 h-8 rounded-full mx-auto flex items-center justify-center text-xs font-black"
+            <div class="w-8 h-8 rounded-full mx-auto flex items-center justify-center text-xs font-black transition-all"
               [ngClass]="stepLevel() >= 2 ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'bg-slate-800 text-slate-500'">
               2
             </div>
-            <p class="text-[11px] font-bold" [ngClass]="stepLevel() >= 2 ? 'text-white' : 'text-slate-500'">
+            <p class="text-[10px] font-bold" [ngClass]="stepLevel() >= 2 ? 'text-blue-300' : 'text-slate-500'">
               Cooking
             </p>
           </div>
 
           <!-- Step 3: Ready -->
           <div class="space-y-1.5">
-            <div class="w-8 h-8 rounded-full mx-auto flex items-center justify-center text-xs font-black"
-              [ngClass]="stepLevel() >= 3 ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30 animate-bounce' : 'bg-slate-800 text-slate-500'">
+            <div class="w-8 h-8 rounded-full mx-auto flex items-center justify-center text-xs font-black transition-all"
+              [ngClass]="stepLevel() >= 3 ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30' : 'bg-slate-800 text-slate-500'"
+              [class.animate-bounce]="stepLevel() === 3">
               3
             </div>
-            <p class="text-[11px] font-bold" [ngClass]="stepLevel() >= 3 ? 'text-emerald-400 font-extrabold' : 'text-slate-500'">
+            <p class="text-[10px] font-bold" [ngClass]="stepLevel() >= 3 ? 'text-emerald-400 font-extrabold' : 'text-slate-500'">
               Ready!
+            </p>
+          </div>
+
+          <!-- Step 4: Completed -->
+          <div class="space-y-1.5">
+            <div class="w-8 h-8 rounded-full mx-auto flex items-center justify-center text-xs font-black transition-all"
+              [ngClass]="stepLevel() >= 4 ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30' : 'bg-slate-800 text-slate-500'">
+              4
+            </div>
+            <p class="text-[10px] font-bold" [ngClass]="stepLevel() >= 4 ? 'text-emerald-300 font-extrabold' : 'text-slate-500'">
+              Collected
             </p>
           </div>
 
         </div>
 
+        <!-- Status Message Banner -->
         <div class="p-2.5 rounded-xl text-center text-xs font-bold mt-2"
           [ngClass]="{
-            'bg-amber-950/40 text-amber-300 border border-amber-800/60': stepLevel() === 1,
-            'bg-blue-950/40 text-blue-300 border border-blue-800/60': stepLevel() === 2,
-            'bg-emerald-950/50 text-emerald-300 border border-emerald-700': stepLevel() >= 3
+            'bg-amber-950/40 text-amber-300 border border-amber-800/60': currentStatus() === 'pending',
+            'bg-blue-950/40 text-blue-300 border border-blue-800/60': currentStatus() === 'preparing',
+            'bg-emerald-950/50 text-emerald-300 border border-emerald-700': currentStatus() === 'ready',
+            'bg-slate-900 text-emerald-300 border border-slate-800': currentStatus() === 'completed'
           }">
           {{ statusMessage() }}
         </div>
@@ -77,35 +133,42 @@
       <div class="space-y-2.5 text-xs">
         <div class="flex items-center justify-between text-slate-400">
           <span>Target:</span>
-          <span class="font-bold text-white">{{ order()?.diningOption === 'dine_in' ? '🍽️ ' + order()?.tableOrBuzzerNumber : '🥡 Takeaway Pickup' }}</span>
+          <span class="font-bold text-white">{{ order()?.diningOption === 'dine_in' ? '🍽️ Dine-in' : '🥡 Takeaway' }}</span>
         </div>
 
-        <div class="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
-          @for (item of order()?.items; track item.id) {
-            <div class="flex items-start justify-between">
-              <div>
-                <span class="font-bold text-white">{{ item.quantity }}x {{ item.name }}</span>
-                @for (mod of item.selectedModifiers; track mod.optionId) {
-                  <span class="block text-[10px] text-slate-400 pl-2">+ {{ mod.optionName }}</span>
-                }
-              </div>
-              <span class="font-mono font-bold text-white">\${{ item.totalPrice.toFixed(2) }}</span>
-            </div>
-          }
-
-          <div class="pt-2 border-t border-slate-800 space-y-1 text-slate-400">
-            @if (order()?.discount && (order()?.discount || 0) > 0) {
-              <div class="flex justify-between text-emerald-400 font-semibold">
-                <span>Voucher Discount</span>
-                <span>-\${{ (order()?.discount || 0).toFixed(2) }}</span>
+        @if ((order()?.items?.length || 0) > 0) {
+          <div class="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
+            @for (item of order()?.items; track item.id) {
+              <div class="flex items-start justify-between">
+                <div>
+                  <span class="font-bold text-white">{{ item.quantity }}x {{ item.name }}</span>
+                  @for (mod of item.selectedModifiers; track mod.optionId) {
+                    <span class="block text-[10px] text-slate-400 pl-2">+ {{ mod.optionName }}</span>
+                  }
+                </div>
+                <span class="font-mono font-bold text-white">${{ item.totalPrice.toFixed(2) }}</span>
               </div>
             }
-            <div class="flex justify-between text-sm font-extrabold text-white pt-1">
-              <span>Total Paid ({{ order()?.paymentMethod | uppercase }})</span>
-              <span class="text-orange-400 font-mono">\${{ order()?.total?.toFixed(2) }}</span>
+
+            <div class="pt-2 border-t border-slate-800 space-y-1 text-slate-400">
+              @if (order()?.discount && (order()?.discount || 0) > 0) {
+                <div class="flex justify-between text-emerald-400 font-semibold">
+                  <span>Voucher Discount</span>
+                  <span>-${{ (order()?.discount || 0).toFixed(2) }}</span>
+                </div>
+              }
+              <div class="flex justify-between text-sm font-extrabold text-white pt-1">
+                <span>Total Paid ({{ (order()?.paymentMethod || 'PAYNOW') | uppercase }})</span>
+                <span class="text-orange-400 font-mono">${{ order()?.total?.toFixed(2) }}</span>
+              </div>
             </div>
           </div>
-        </div>
+        } @else {
+          <div class="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between text-sm font-extrabold text-white">
+            <span>Total Amount</span>
+            <span class="text-orange-400 font-mono">${{ order()?.total?.toFixed(2) }}</span>
+          </div>
+        }
       </div>
 
       <!-- Action Buttons -->
@@ -120,7 +183,7 @@
         </button>
 
         <a
-          routerLink="/customer/stalls"
+          routerLink="/stalls"
           class="py-3 px-3 rounded-xl bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs transition-colors flex items-center justify-center gap-1.5 shadow-md shadow-orange-600/25 cursor-pointer"
         >
           <app-icon name="plus" [size]="16"></app-icon>
@@ -130,13 +193,128 @@
 
     </div>
   } @else {
-    <div class="p-8 text-center bg-slate-900 border border-slate-800 rounded-3xl space-y-3">
-      <span class="text-4xl">🍽️</span>
-      <h3 class="font-bold text-base text-white">No active order selected</h3>
-      <p class="text-xs text-slate-400">Browse stalls to place your next delicious hawker meal</p>
-      <a routerLink="/customer/stalls" class="inline-block mt-2 px-4 py-2 rounded-xl bg-orange-600 text-white font-bold text-xs">
-        Browse Stalls
-      </a>
+    <!-- Empty State & Ticket Lookup -->
+    <div class="p-6 text-center bg-slate-900 border border-slate-800 rounded-3xl space-y-4 shadow-xl">
+      <span class="text-5xl block">📡</span>
+      <div>
+        <h3 class="font-extrabold text-base text-white">Live Order Tracking</h3>
+        <p class="text-xs text-slate-400 mt-1">Track your hawker food preparation status in real-time or search past orders</p>
+      </div>
+
+      <!-- Lookup Form -->
+      <div class="space-y-2 pt-2 max-w-xs mx-auto">
+        <div class="relative flex items-center">
+          <input
+            type="text"
+            [(ngModel)]="lookupQuery"
+            placeholder="Enter Order # or ID (e.g. 12 or 13)"
+            class="w-full pl-4 pr-16 py-2.5 text-xs rounded-xl bg-slate-950 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500"
+            (keyup.enter)="searchAndTrackOrder()"
+          />
+          <button
+            type="button"
+            (click)="searchAndTrackOrder()"
+            [disabled]="isSearching()"
+            class="absolute right-1 px-3 py-1.5 rounded-lg bg-orange-600 text-white font-bold text-xs hover:bg-orange-500 transition-colors cursor-pointer disabled:opacity-50"
+          >
+            @if (isSearching()) {
+              <span>...</span>
+            } @else {
+              <span>Search</span>
+            }
+          </button>
+        </div>
+
+        @if (lookupNotFound()) {
+          <div class="p-3 rounded-2xl bg-rose-950/40 border border-rose-800/60 text-rose-300 text-xs font-semibold text-center animate-fade-in">
+            <span class="font-bold block text-sm">No order found</span>
+            <span class="text-[11px] text-slate-400">No past or active order returned matching "{{ lookupQuery }}".</span>
+          </div>
+        }
+      </div>
+
+      <!-- Past Order Returned / Completed Result -->
+      @if (searchedPastOrder(); as pastOrd) {
+        <div class="pt-2 text-left space-y-2.5 animate-fade-in max-w-md mx-auto">
+          <!-- Status Banner: Order is completed -->
+          <div class="p-3 rounded-2xl bg-emerald-950/70 border border-emerald-800 text-emerald-300 flex items-center justify-between text-xs font-bold shadow-md">
+            <div class="flex items-center gap-2">
+              <span class="text-base">✅</span>
+              <span class="font-extrabold text-sm">Order is completed</span>
+            </div>
+            <button
+              type="button"
+              (click)="clearLookup()"
+              class="text-[11px] text-emerald-400 hover:text-white underline cursor-pointer"
+            >
+              Clear
+            </button>
+          </div>
+
+          <!-- Order Card -->
+          <div class="p-4 rounded-3xl bg-slate-950 border border-slate-800 shadow-md flex items-center justify-between gap-3">
+            <div class="space-y-1 min-w-0 flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-black font-mono text-sm text-white">#{{ pastOrd.orderNumber }}</span>
+                <span class="px-2 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
+                  {{ pastOrd.diningOption === 'dine_in' ? 'Dine-In' : 'Takeaway' }}
+                </span>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-950/60 text-emerald-300 border border-emerald-800/80">
+                  Order is completed
+                </span>
+              </div>
+              <p class="text-xs text-slate-300 line-clamp-1">
+                @for (item of pastOrd.items; track item.id; let last = $last) {
+                  <span>{{ item.quantity }}x {{ item.name }}@if (!last) { , }</span>
+                }
+              </p>
+              <div class="text-[10px] text-slate-500 font-mono">
+                {{ formatOrderDate(pastOrd.createdAt) }} • {{ pastOrd.paymentMethod | uppercase }}
+              </div>
+            </div>
+
+            <div class="text-right space-y-1.5 shrink-0">
+              <div class="font-black font-mono text-sm text-white">
+                ${{ pastOrd.total.toFixed(2) }}
+              </div>
+              <button
+                type="button"
+                (click)="selectedPastOrderForReceipt.set(pastOrd)"
+                class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+              >
+                <app-icon name="receipt" [size]="12"></app-icon>
+                <span>Receipt</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      }
+
+      <!-- Quick List of Active Orders to Track -->
+      @if (activeOrders().length > 0) {
+        <div class="pt-4 border-t border-slate-800 text-left space-y-2">
+          <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+            Active Orders
+          </span>
+          <div class="space-y-2">
+            @for (ord of activeOrders().slice(0, 3); track ord.id) {
+              <div class="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-2">
+                <div>
+                  <span class="font-black font-mono text-xs text-white">#{{ ord.orderNumber }}</span>
+                  <p class="text-[10px] text-slate-400">${{ ord.total.toFixed(2) }} • {{ ord.status | uppercase }}</p>
+                </div>
+                <button
+                  type="button"
+                  (click)="selectOrderToTrack(ord)"
+                  class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-orange-600 hover:text-white text-slate-300 font-bold text-xs transition-colors cursor-pointer"
+                >
+                  Track Live
+                </button>
+              </div>
+            }
+          </div>
+        </div>
+      }
     </div>
   }
 
@@ -145,6 +323,13 @@
     <app-receipt-modal
       [order]="order()"
       (close)="showReceiptModal.set(false)"
+    ></app-receipt-modal>
+  }
+
+  @if (selectedPastOrderForReceipt()) {
+    <app-receipt-modal
+      [order]="selectedPastOrderForReceipt()"
+      (close)="selectedPastOrderForReceipt.set(null)"
     ></app-receipt-modal>
   }
 

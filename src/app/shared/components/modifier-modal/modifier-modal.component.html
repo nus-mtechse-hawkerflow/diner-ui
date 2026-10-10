@@ -73,7 +73,7 @@
                     </div>
                     @if (opt.priceDelta !== 0) {
                       <span class="text-xs font-bold text-orange-600 dark:text-orange-400">
-                        {{ opt.priceDelta > 0 ? '+' : '' }}\${{ opt.priceDelta.toFixed(2) }}
+                        {{ opt.priceDelta > 0 ? '+' : '' }}${{ opt.priceDelta.toFixed(2) }}
                       </span>
                     }
                   </button>
@@ -104,7 +104,7 @@
                     </div>
                     @if (opt.priceDelta > 0) {
                       <span class="text-xs font-bold text-orange-600 dark:text-orange-400">
-                        +\${{ opt.priceDelta.toFixed(2) }}
+                        +${{ opt.priceDelta.toFixed(2) }}
                       </span>
                     }
                   </button>
@@ -161,7 +161,7 @@
           class="flex-1 py-3 px-5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-bold text-sm shadow-lg shadow-orange-600/25 flex items-center justify-between active:scale-[0.99] transition-all cursor-pointer"
         >
           <span>Add to Order</span>
-          <span>\${{ calculateTotal().toFixed(2) }}</span>
+          <span>${{ calculateTotal().toFixed(2) }}</span>
         </button>
 
       </div>

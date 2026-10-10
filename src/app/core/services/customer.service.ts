@@ -1,136 +1,44 @@
 import { Injectable, signal, computed, effect, inject } from '@angular/core';
 import { Router } from '@angular/router';
+import { Observable, of, tap, catchError, map, switchMap } from 'rxjs';
 import { CustomerUser, CustomerVoucher, CustomerStampCard, CustomerTier } from '../models/customer.model';
-import { Order } from '../models/order.model';
+import { Order, OrderItem, OrderStatus } from '../models/order.model';
+import { CognitoAuthTokens, CognitoService } from './cognito.service';
+import { HawkerApiService } from './hawker-api.service';
+import { GUEST_STATE_STORAGE_KEY, readStored, writeStored } from './browser-storage';
+import {
+  BackendCustomerRegisterPayload,
+  BackendCheckAccountPayload,
+  BackendUpdateCustomerOrderPayload,
+  BackendDishOrder,
+  BackendStallOrder,
+  BackendCustomerDetailResponse,
+  BackendPastOrderDish,
+  BackendPastOrdersWrapper
+} from '../models/hawker-api.model';
 
-const CUSTOMER_SESSION_KEY = 'hawkerflow_customer_session_v1';
-const CUSTOMER_VOUCHERS_KEY = 'hawkerflow_customer_vouchers_v1';
-const CUSTOMER_STAMPS_KEY = 'hawkerflow_customer_stamps_v1';
-const CUSTOMER_ORDERS_KEY = 'hawkerflow_customer_orders_v1';
+// Finished guest orders older than this are dropped when the page loads.
+export const GUEST_ORDER_RETENTION_MS = 24 * 60 * 60 * 1000;
 
-export const INITIAL_PRESET_CUSTOMERS: CustomerUser[] = [
-  {
-    id: 'cust-uncle-tan',
-    name: 'Uncle Tan (陈伯)',
-    email: 'uncletan@hawkerkaki.sg',
-    phone: '+65 9123 4567',
-    isGuest: false,
-    loyaltyPoints: 340,
-    tier: 'Gold Kaki',
-    avatarEmoji: '👴',
-    registeredAt: '2025-01-15T08:30:00.000Z'
-  },
-  {
-    id: 'cust-chloe-lim',
-    name: 'Chloe Lim',
-    email: 'chloe.lim@gmail.com',
-    phone: '+65 9876 5432',
-    isGuest: false,
-    loyaltyPoints: 185,
-    tier: 'Silver Kaki',
-    avatarEmoji: '👩',
-    registeredAt: '2025-06-20T12:00:00.000Z'
-  }
-];
-
-export const INITIAL_VOUCHERS: CustomerVoucher[] = [
-  {
-    id: 'vouch-welcome-5',
-    code: 'WELCOME5',
-    title: '$5.00 Hawker Welcome Voucher',
-    description: 'Enjoy $5 off on any hawker meal across all stalls. Min spend $10.',
-    discountType: 'fixed',
-    discountValue: 5.00,
-    minSpend: 10.00,
-    validUntil: '2026-12-31',
-    isUsed: false,
-    icon: 'sparkles'
-  },
-  {
-    id: 'vouch-kopi-free',
-    code: 'FREEKOPI',
-    title: 'Free Traditional Kopi / Teh',
-    description: 'Complimentary hot kopi or teh with any main dish order.',
-    discountType: 'fixed',
-    discountValue: 1.60,
-    minSpend: 5.00,
-    applicableStallId: 'stall-uncle-lim',
-    validUntil: '2026-12-31',
-    isUsed: false,
-    icon: 'coffee'
-  },
-  {
-    id: 'vouch-maxwell-10',
-    code: 'MAXWELL10',
-    title: '10% Maxwell Food Centre Discount',
-    description: 'Get 10% off your total bill at Ah Huat Hainanese Delights.',
-    discountType: 'percentage',
-    discountValue: 10,
-    minSpend: 8.00,
-    applicableStallId: 'stall-ah-huat',
-    validUntil: '2026-12-31',
-    isUsed: false,
-    icon: 'flame'
-  },
-  {
-    id: 'vouch-seafood-3',
-    code: 'SEAFOOD3',
-    title: '$3.00 OFF Newton BBQ Seafood',
-    description: 'Discount on Sambal Stingray & Grilled Seafood. Min spend $15.',
-    discountType: 'fixed',
-    discountValue: 3.00,
-    minSpend: 15.00,
-    applicableStallId: 'stall-newton-bbq',
-    validUntil: '2026-12-31',
-    isUsed: false,
-    icon: 'soup'
-  }
-];
-
-export const INITIAL_STAMP_CARDS: CustomerStampCard[] = [
-  {
-    id: 'stamp-ah-huat',
-    stallId: 'stall-ah-huat',
-    stallName: 'Ah Huat Hainanese Delights',
-    stallEmoji: '🍗',
-    currentStamps: 7,
-    maxStamps: 10,
-    rewardDescription: 'Free Chicken Rice Set (Worth $6.50)',
-    claimedRewardsCount: 1
-  },
-  {
-    id: 'stamp-uncle-lim',
-    stallId: 'stall-uncle-lim',
-    stallName: "Uncle Lim's Kopi & Toast",
-    stallEmoji: '☕',
-    currentStamps: 8,
-    maxStamps: 10,
-    rewardDescription: 'Free Traditional Kopi Set + Kaya Toast',
-    claimedRewardsCount: 3
-  },
-  {
-    id: 'stamp-airport-noodles',
-    stallId: 'stall-old-airport',
-    stallName: 'Old Airport Road Famous Noodles',
-    stallEmoji: '🍜',
-    currentStamps: 4,
-    maxStamps: 10,
-    rewardDescription: 'Free Signature Wonton Mee',
-    claimedRewardsCount: 0
-  }
-];
+interface StoredGuestState {
+  customer: CustomerUser | null;
+  orders: Order[];
+}
 
 @Injectable({
   providedIn: 'root'
 })
 export class CustomerService {
   private router = inject(Router);
+  private cognitoService = inject(CognitoService);
+  private hawkerApiService = inject(HawkerApiService);
 
-  readonly currentCustomer = signal<CustomerUser | null>(this.loadCustomerSession());
-  readonly vouchers = signal<CustomerVoucher[]>(this.loadVouchers());
-  readonly stampCards = signal<CustomerStampCard[]>(this.loadStampCards());
+  readonly currentCustomer = signal<CustomerUser | null>(null);
+  readonly vouchers = signal<CustomerVoucher[]>([]);
+  readonly stampCards = signal<CustomerStampCard[]>([]);
   readonly appliedVoucher = signal<CustomerVoucher | null>(null);
-  readonly customerOrders = signal<Order[]>(this.loadCustomerOrders());
+  readonly customerOrders = signal<Order[]>([]);
+  readonly hasUnseenOrders = signal<boolean>(false);
 
   readonly isAuthenticated = computed(() => {
     const cust = this.currentCustomer();
@@ -139,73 +47,32 @@ export class CustomerService {
 
   readonly isGuest = computed(() => {
     const cust = this.currentCustomer();
-    return cust !== null && cust.isGuest;
+    return cust === null || cust.isGuest;
   });
 
   readonly activeVouchersCount = computed(() => {
     return this.vouchers().filter(v => !v.isUsed).length;
   });
 
-  constructor() {
-    effect(() => {
-      try {
-        if (typeof window !== 'undefined' && window.localStorage) {
-          const cust = this.currentCustomer();
-          if (cust) {
-            window.localStorage.setItem(CUSTOMER_SESSION_KEY, JSON.stringify(cust));
-          } else {
-            window.localStorage.removeItem(CUSTOMER_SESSION_KEY);
-          }
-          window.localStorage.setItem(CUSTOMER_VOUCHERS_KEY, JSON.stringify(this.vouchers()));
-          window.localStorage.setItem(CUSTOMER_STAMPS_KEY, JSON.stringify(this.stampCards()));
-          window.localStorage.setItem(CUSTOMER_ORDERS_KEY, JSON.stringify(this.customerOrders()));
-        }
-      } catch (e) {
-        // storage fallback
-      }
-    });
-  }
+  readonly activeCustomerOrders = computed(() => {
+    return this.customerOrders().filter(o => o.status === 'pending' || o.status === 'preparing' || o.status === 'ready');
+  });
 
-  private loadCustomerSession(): CustomerUser | null {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const stored = window.localStorage.getItem(CUSTOMER_SESSION_KEY);
-        if (stored) return JSON.parse(stored);
-      }
-    } catch (e) {}
-    // Default to Uncle Tan demo session for immediate rich experience
-    return INITIAL_PRESET_CUSTOMERS[0];
-  }
+  // Set once restoreSession has decided whether this is a signed-in diner or a
+  // guest, so the effect below cannot overwrite stored guest state before it is read.
+  private readonly guestStateReady = signal<boolean>(false);
 
-  private loadVouchers(): CustomerVoucher[] {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const stored = window.localStorage.getItem(CUSTOMER_VOUCHERS_KEY);
-        if (stored) return JSON.parse(stored);
-      }
-    } catch (e) {}
-    return INITIAL_VOUCHERS;
-  }
-
-  private loadStampCards(): CustomerStampCard[] {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const stored = window.localStorage.getItem(CUSTOMER_STAMPS_KEY);
-        if (stored) return JSON.parse(stored);
-      }
-    } catch (e) {}
-    return INITIAL_STAMP_CARDS;
-  }
-
-  private loadCustomerOrders(): Order[] {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const stored = window.localStorage.getItem(CUSTOMER_ORDERS_KEY);
-        if (stored) return JSON.parse(stored);
-      }
-    } catch (e) {}
-    return [];
-  }
+  /**
+   * Keeps a guest's identity and orders in localStorage so a page reload does
+   * not lose them. Signed-in diners are skipped: theirs come from the backend.
+   */
+  private readonly persistGuestState = effect(() => {
+    const ready = this.guestStateReady();
+    const customer = this.currentCustomer();
+    const orders = this.customerOrders();
+    if (!ready || (customer && !customer.isGuest)) return;
+    writeStored(GUEST_STATE_STORAGE_KEY, { customer, orders } satisfies StoredGuestState);
+  });
 
   continueAsGuest(name?: string, phone?: string): CustomerUser {
     const guestUser: CustomerUser = {
@@ -223,83 +90,491 @@ export class CustomerService {
     return guestUser;
   }
 
-  quickLoginPreset(customerId: string): void {
-    const preset = INITIAL_PRESET_CUSTOMERS.find(c => c.id === customerId);
-    if (preset) {
-      this.currentCustomer.set(preset);
-      this.router.navigate(['/stalls']);
-    }
-  }
+  login(identifier: string, password?: string): Observable<{
+    success: boolean;
+    requiresMfa?: boolean;
+    isSignedIn?: boolean;
+    nextStep?: any;
+    codeDeliveryDetails?: any;
+    user?: CustomerUser;
+    error?: string;
+  }> {
+    const term = identifier.trim();
+    if (!term) return of({ success: false, error: 'Identifier required' });
 
-  login(identifier: string): { success: boolean; error?: string } {
-    const term = identifier.trim().toLowerCase();
-    const match = INITIAL_PRESET_CUSTOMERS.find(
-      c =>
-        c.email?.toLowerCase() === term ||
-        c.phone?.includes(term) ||
-        c.name.toLowerCase().includes(term)
+    return this.cognitoService.signIn(term, password).pipe(
+      switchMap(res => {
+        if (!res.success || !res.isSignedIn) {
+          if (res.requiresMfa) {
+            return of({
+              success: true,
+              requiresMfa: true,
+              isSignedIn: false,
+              nextStep: res.nextStep,
+              codeDeliveryDetails: res.codeDeliveryDetails
+            });
+          }
+          return of({
+            success: false,
+            isSignedIn: false,
+            error: res.error || 'Login failed. Please check your username and password.'
+          });
+        }
+
+        const custSub = res.userSub || res.user?.userId || res.user?.sub || term;
+        const user = this.buildSignedInUser(term, custSub, res.tokens);
+
+        return this.loadCustomerDetails(user).pipe(
+          map(() => {
+            this.router.navigate(['/stalls']);
+            return {
+              success: true,
+              requiresMfa: false,
+              isSignedIn: true,
+              user
+            };
+          })
+        );
+      }),
+      catchError(err => {
+        const errorMsg = err?.message || 'Login failed';
+        return of({ success: false, isSignedIn: false, error: errorMsg });
+      })
     );
-
-    if (match) {
-      this.currentCustomer.set(match);
-      this.router.navigate(['/stalls']);
-      return { success: true };
-    }
-
-    // If not in presets, create active session for this user
-    const newUser: CustomerUser = {
-      id: 'cust-' + Date.now(),
-      name: identifier.split('@')[0],
-      email: identifier.includes('@') ? identifier : undefined,
-      phone: !identifier.includes('@') ? identifier : undefined,
-      isGuest: false,
-      loyaltyPoints: 50,
-      tier: 'Bronze Kaki',
-      avatarEmoji: '😋',
-      registeredAt: new Date().toISOString()
-    };
-    this.currentCustomer.set(newUser);
-    this.router.navigate(['/stalls']);
-    return { success: true };
   }
 
-  register(data: { name: string; email?: string; phone: string }): CustomerUser {
+  confirmMfa(code: string, userDetails?: { identifier?: string; name?: string; sub?: string }): Observable<{
+    success: boolean;
+    isSignedIn?: boolean;
+    user?: CustomerUser;
+    error?: string;
+  }> {
+    return this.cognitoService.confirmSignIn(code).pipe(
+      switchMap(res => {
+        if (!res.success && res.error) {
+          return of({ success: false, error: res.error });
+        }
+
+        if (res.isSignedIn) {
+          const term = userDetails?.identifier || 'User';
+          const custSub = res.userSub || res.user?.userId || userDetails?.sub || term;
+          const user: CustomerUser = {
+            id: custSub,
+            cognitoSub: custSub,
+            name: userDetails?.name || (term.includes('@') ? term.split('@')[0] : 'Diner ' + term.slice(-4)),
+            email: term.includes('@') ? term : undefined,
+            phone: !term.includes('@') ? term : undefined,
+            isGuest: false,
+            loyaltyPoints: 0,
+            tier: 'Bronze Kaki',
+            avatarEmoji: '🥢',
+            registeredAt: new Date().toISOString(),
+            accessToken: res.tokens?.accessToken,
+            idToken: res.tokens?.idToken
+          };
+
+          return this.hawkerApiService.getCustomerDetails(custSub).pipe(
+            map(detail => {
+              if (detail) {
+                if (detail.cust_id || detail.customer_id) {
+                  user.id = detail.cust_id || detail.customer_id || user.id;
+                }
+                if (detail.cust_name || detail.customer_name) {
+                  user.name = detail.cust_name || detail.customer_name || user.name;
+                }
+                if (detail.last_login) {
+                  user.lastLogin = detail.last_login;
+                }
+                if (detail.email) {
+                  user.email = detail.email;
+                }
+                if (detail.phone_number) {
+                  user.phone = detail.phone_number;
+                }
+                if (detail.past_orders) {
+                  const mappedOrders = this.mapPastOrders(detail.past_orders);
+                  this.customerOrders.set(mappedOrders);
+                }
+              }
+              this.currentCustomer.set(user);
+              this.router.navigate(['/stalls']);
+              return { success: true, isSignedIn: true, user };
+            }),
+            catchError(() => {
+              this.currentCustomer.set(user);
+              this.router.navigate(['/stalls']);
+              return of({ success: true, isSignedIn: true, user });
+            })
+          );
+        }
+
+        return of({ success: false, error: 'MFA Verification was not completed' });
+      }),
+      catchError(err => of({ success: false, error: err?.message || 'MFA confirmation failed' }))
+    );
+  }
+
+  register(data: {
+    name?: string;
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    phone: string;
+    password?: string;
+  }): Observable<{
+    success: boolean;
+    accountExists?: boolean;
+    isSignedIn?: boolean;
+    requiresMfa?: boolean;
+    requiresConfirmation?: boolean;
+    isSignUpComplete?: boolean;
+    userSub?: string;
+    customerSub?: string;
+    username?: string;
+    user?: CustomerUser;
+    nextStep?: any;
+    codeDeliveryDetails?: any;
+    error?: string;
+  }> {
+    const rawPhone = data.phone.trim();
+    const username = rawPhone;
+
+    // Parse first name & last name
+    let firstName = data.firstName?.trim() || '';
+    let lastName = data.lastName?.trim() || '';
+    if (!firstName && !lastName && data.name) {
+      const parts = data.name.trim().split(/\s+/);
+      firstName = parts[0] || 'Diner';
+      lastName = parts.slice(1).join(' ') || 'User';
+    } else if (!firstName) {
+      firstName = 'Diner';
+    } else if (!lastName) {
+      lastName = 'User';
+    }
+    const fullName = `${firstName} ${lastName}`.trim();
+    const email = data.email?.trim() || `${rawPhone.replace(/\D/g, '')}@example.com`;
+
     const newUser: CustomerUser = {
       id: 'cust-' + Date.now(),
-      name: data.name.trim(),
-      email: data.email?.trim(),
-      phone: data.phone.trim(),
+      name: fullName,
+      email: data.email?.trim() || undefined,
+      phone: rawPhone,
       isGuest: false,
-      loyaltyPoints: 100, // 100 Welcome Points!
+      loyaltyPoints: 0,
       tier: 'Bronze Kaki',
-      avatarEmoji: '🌟',
-      registeredAt: new Date().toISOString()
+      avatarEmoji: '🥢',
+      registeredAt: new Date().toISOString(),
+      cognitoUsername: username
     };
 
-    // Add $5 Welcome voucher
-    const welcomeVoucher: CustomerVoucher = {
-      id: 'vouch-reg-' + Date.now(),
-      code: 'WELCOME5',
-      title: '$5.00 New Member Voucher',
-      description: 'Welcome to HawkerFlow! $5 off any order above $10.',
-      discountType: 'fixed',
-      discountValue: 5.00,
-      minSpend: 10.00,
-      validUntil: '2026-12-31',
-      isUsed: false,
-      icon: 'sparkles'
+    const checkPayload: BackendCheckAccountPayload = {
+      phone_number: rawPhone,
+      email
     };
 
-    this.vouchers.update(list => [welcomeVoucher, ...list]);
-    this.currentCustomer.set(newUser);
-    this.router.navigate(['/stalls']);
-    return newUser;
+    // 1. Check if account already exists before AWS Cognito signup
+    return this.hawkerApiService.checkAccountExists(checkPayload).pipe(
+      catchError((err) => {
+        if (err?.error && typeof err.error.account_exist === 'boolean') {
+          return of({ account_exist: err.error.account_exist });
+        }
+        return of({ account_exist: false });
+      }),
+      switchMap(checkRes => {
+        const isExisting = this.isAccountExisting(checkRes);
+
+        // 2. If account exists, prompt customer that account already exists and stop registration
+        if (isExisting) {
+          return of({
+            success: false,
+            accountExists: true,
+            error: 'Account already exists. Please log in instead.'
+          });
+        }
+
+        // 3. If account does not exist, proceed with AWS Cognito signUp
+        return this.cognitoService.signUp({
+          username: data.email?.trim() || rawPhone,
+          password: data.password,
+          name: fullName,
+          phone: rawPhone,
+          email: data.email?.trim()
+        }).pipe(
+          switchMap(res => {
+            const errLower = (res.error || '').toLowerCase();
+            const isUserExists = res.isUsernameExists || errLower.includes('already exists') || errLower.includes('usernameexistsexception');
+
+            if (isUserExists) {
+              return of({
+                success: false,
+                accountExists: true,
+                error: 'Account already exists. Please log in instead.'
+              });
+            }
+
+            if (!res.success && res.error) {
+              return of({ success: false, error: res.error });
+            }
+
+            const customerSub = res.userSub || newUser.cognitoSub || newUser.id;
+            if (res.userSub) {
+              newUser.id = res.userSub;
+              newUser.cognitoSub = res.userSub;
+            }
+
+            if (res.isSignUpComplete) {
+              // Forward customer details to Backend Customer Service only when registration completes, including customer sub
+              const backendPayload: BackendCustomerRegisterPayload = {
+                first_name: firstName,
+                last_name: lastName,
+                email,
+                phone_number: rawPhone,
+                customer_sub: customerSub,
+                sub: customerSub
+              };
+              this.hawkerApiService.registerCustomer(backendPayload).pipe(
+                catchError(() => of(null))
+              ).subscribe();
+
+              this.currentCustomer.set(newUser);
+              this.router.navigate(['/stalls']);
+              return of({
+                success: true,
+                requiresConfirmation: false,
+                isSignUpComplete: true,
+                userSub: customerSub,
+                user: newUser
+              });
+            }
+
+            // Confirmation code is required by AWS Cognito -> Do NOT call registerCustomer yet, wait for confirmRegistrationCode
+            return of({
+              success: true,
+              requiresConfirmation: true,
+              isSignUpComplete: false,
+              userSub: customerSub,
+              username,
+              user: newUser,
+              codeDeliveryDetails: res.codeDeliveryDetails
+            });
+          }),
+          catchError(err => of({ success: false, error: err?.message || 'Registration failed' }))
+        );
+      })
+    );
+  }
+
+  private isAccountExisting(res: any): boolean {
+    if (res === null || res === undefined) return false;
+    if (typeof res === 'boolean') return res;
+    if (typeof res === 'object') {
+      if (typeof res.account_exist === 'boolean') {
+        return res.account_exist;
+      }
+      if (res.data && typeof res.data.account_exist === 'boolean') {
+        return res.data.account_exist;
+      }
+      if (typeof res.account_exists === 'boolean') {
+        return res.account_exists;
+      }
+      if (typeof res.exists === 'boolean') {
+        return res.exists;
+      }
+      if (typeof res.is_account_exist === 'boolean') {
+        return res.is_account_exist;
+      }
+      if (typeof res.is_exist === 'boolean') {
+        return res.is_exist;
+      }
+      if (res.account_exist !== undefined) return Boolean(res.account_exist);
+      if (res.account_exists !== undefined) return Boolean(res.account_exists);
+      if (res.exists !== undefined) return Boolean(res.exists);
+    }
+    return false;
+  }
+
+  confirmRegistrationCode(
+    username: string,
+    code: string,
+    userDetails?: { name?: string; firstName?: string; lastName?: string; phone?: string; email?: string; sub?: string; customer_sub?: string }
+  ): Observable<{
+    success: boolean;
+    isSignUpComplete?: boolean;
+    user?: CustomerUser;
+    error?: string;
+  }> {
+    return this.cognitoService.confirmSignUp(username, code).pipe(
+      map(res => {
+        if (!res.success && res.error) {
+          return { success: false, error: res.error };
+        }
+
+        let firstName = userDetails?.firstName?.trim() || '';
+        let lastName = userDetails?.lastName?.trim() || '';
+        if (!firstName && !lastName && userDetails?.name) {
+          const parts = userDetails.name.trim().split(/\s+/);
+          firstName = parts[0] || 'Diner';
+          lastName = parts.slice(1).join(' ') || 'User';
+        } else if (!firstName) {
+          firstName = 'Diner';
+        } else if (!lastName) {
+          lastName = 'User';
+        }
+        const fullName = `${firstName} ${lastName}`.trim();
+        const rawPhone = userDetails?.phone || username;
+        const email = userDetails?.email?.trim() || `${rawPhone.replace(/\D/g, '')}@example.com`;
+        const customerSub = userDetails?.customer_sub || userDetails?.sub || 'sub-' + Date.now();
+
+        // Forward to backend customer service if not sent already with string phone_number and customer_sub
+        const backendPayload: BackendCustomerRegisterPayload = {
+          first_name: firstName,
+          last_name: lastName,
+          email,
+          phone_number: rawPhone,
+          customer_sub: customerSub,
+          sub: customerSub
+        };
+        this.hawkerApiService.registerCustomer(backendPayload).pipe(
+          catchError(() => of(null))
+        ).subscribe();
+
+        const confirmedUser: CustomerUser = {
+          id: customerSub,
+          name: fullName,
+          email: userDetails?.email,
+          phone: rawPhone,
+          isGuest: false,
+          loyaltyPoints: 0,
+          tier: 'Bronze Kaki',
+          avatarEmoji: '🥢',
+          registeredAt: new Date().toISOString(),
+          cognitoUsername: username,
+          cognitoSub: customerSub
+        };
+        this.currentCustomer.set(confirmedUser);
+        this.router.navigate(['/stalls']);
+        return { success: true, isSignUpComplete: true, user: confirmedUser };
+      }),
+      catchError(err => of({ success: false, error: err?.message || 'Confirmation code invalid' }))
+    );
+  }
+
+  resendConfirmationCode(username: string): Observable<{ success: boolean; destination?: string; error?: string }> {
+    return this.cognitoService.resendSignUpCode(username);
+  }
+
+  /**
+   * Rebuilds the signed-in customer from the Cognito session Amplify keeps in
+   * localStorage, so a page reload does not sign the diner out. Stays on the
+   * current page. Emits whether a customer was restored.
+   */
+  restoreSession(): Observable<boolean> {
+    return this.cognitoService.restoreSession().pipe(
+      switchMap(res => {
+        if (!res.success || !res.isSignedIn || !res.userSub) {
+          return of(false);
+        }
+        const loginId = res.user?.signInDetails?.loginId || res.user?.username || res.userSub;
+        const user = this.buildSignedInUser(loginId, res.userSub, res.tokens);
+        return this.loadCustomerDetails(user).pipe(map(() => true));
+      }),
+      tap(restored => {
+        if (!restored) this.restoreGuestState();
+        this.guestStateReady.set(true);
+      })
+    );
+  }
+
+  /**
+   * Reloads a guest's identity and orders saved by persistGuestState. Orders
+   * still in progress are always kept; finished ones only for a day.
+   */
+  private restoreGuestState(): void {
+    const stored = readStored<StoredGuestState>(GUEST_STATE_STORAGE_KEY);
+    if (!stored) return;
+
+    const cutoff = Date.now() - GUEST_ORDER_RETENTION_MS;
+    const orders = (Array.isArray(stored.orders) ? stored.orders : []).filter(o => {
+      const isActive = o.status === 'pending' || o.status === 'preparing' || o.status === 'ready';
+      return isActive || new Date(o.createdAt).getTime() >= cutoff;
+    });
+
+    if (stored.customer?.isGuest) this.currentCustomer.set(stored.customer);
+    this.customerOrders.set(orders);
+  }
+
+  private buildSignedInUser(loginId: string, custSub: string, tokens?: CognitoAuthTokens): CustomerUser {
+    return {
+      id: custSub,
+      cognitoSub: custSub,
+      cognitoUsername: loginId,
+      name: loginId.includes('@') ? loginId.split('@')[0] : 'Diner ' + loginId.slice(-4),
+      email: loginId.includes('@') ? loginId : undefined,
+      phone: !loginId.includes('@') ? loginId : undefined,
+      isGuest: false,
+      loyaltyPoints: 0,
+      tier: 'Bronze Kaki',
+      avatarEmoji: '🥢',
+      registeredAt: new Date().toISOString(),
+      accessToken: tokens?.accessToken,
+      idToken: tokens?.idToken
+    };
+  }
+
+  /**
+   * Fills in the customer's details and past orders from /customer/user/{cust_sub},
+   * then makes them the current customer. A failed lookup still signs them in.
+   */
+  private loadCustomerDetails(user: CustomerUser): Observable<CustomerUser> {
+    return this.hawkerApiService.getCustomerDetails(user.cognitoSub!).pipe(
+      map(detail => {
+        if (detail) {
+          if (detail.cust_id || detail.customer_id) {
+            user.id = detail.cust_id || detail.customer_id || user.id;
+          }
+          if (detail.cust_name || detail.customer_name) {
+            user.name = detail.cust_name || detail.customer_name || user.name;
+          }
+          if (detail.last_login) {
+            user.lastLogin = detail.last_login;
+          }
+          if (detail.email) {
+            user.email = detail.email;
+          }
+          if (detail.phone_number) {
+            user.phone = detail.phone_number;
+          }
+          if (detail.past_orders) {
+            const mappedOrders = this.mapPastOrders(detail.past_orders);
+            this.customerOrders.set(mappedOrders);
+          }
+        }
+        this.currentCustomer.set(user);
+        return user;
+      }),
+      catchError(() => {
+        this.currentCustomer.set(user);
+        return of(user);
+      })
+    );
   }
 
   logout(): void {
+    this.cognitoService.signOut().subscribe();
     this.currentCustomer.set(null);
     this.appliedVoucher.set(null);
+    this.customerOrders.set([]);
+    this.hasUnseenOrders.set(false);
     this.router.navigate(['/auth']);
+  }
+
+  clearCustomerOrders(): void {
+    this.customerOrders.set([]);
+    this.hasUnseenOrders.set(false);
+  }
+
+  markOrdersViewed(): void {
+    this.hasUnseenOrders.set(false);
   }
 
   applyVoucher(voucher: CustomerVoucher): void {
@@ -313,6 +588,10 @@ export class CustomerService {
   recordCustomerOrder(order: Order, stallId: string, stallName: string, stallEmoji: string): void {
     // Save to customer's order history
     this.customerOrders.update(orders => [order, ...orders]);
+    this.hasUnseenOrders.set(true);
+
+    // Send POST /v1/customer/user/update_order upon successful payment / order placement
+    this.syncCustomerOrder(order, stallId);
 
     const cust = this.currentCustomer();
     if (!cust || cust.isGuest) return;
@@ -320,7 +599,7 @@ export class CustomerService {
     // 1 Point per $1 spent
     const pointsEarned = Math.floor(order.total);
     const newTotalPoints = cust.loyaltyPoints + pointsEarned;
-    
+
     // Tier calculation
     let newTier: CustomerTier = 'Bronze Kaki';
     if (newTotalPoints >= 300) newTier = 'Gold Kaki';
@@ -417,4 +696,273 @@ export class CustomerService {
     this.vouchers.update(list => [newVoucher, ...list]);
     return true;
   }
+
+  /**
+   * Updates order status and synchronizes the change to backend Customer Service:
+   * POST /customer/v1/customer/user/update_order
+   */
+  updateOrderStatus(orderId: string | number, status: OrderStatus): void {
+    const idStr = String(orderId);
+    const numId = Number(orderId);
+    const now = new Date().toISOString();
+    let updatedOrder: Order | null = null;
+
+    this.customerOrders.update(orders =>
+      orders.map(o => {
+        const isMatch = o.id === idStr || o.id === `ord-${idStr}` || (numId && o.dailySequence === numId);
+        if (isMatch) {
+          const updated: Order = { ...o, status };
+          if (status === 'completed' && !o.completedAt) {
+            updated.completedAt = now;
+          } else if (status === 'ready' && !o.readyAt) {
+            updated.readyAt = now;
+          } else if (status === 'preparing' && !o.startedPrepAt) {
+            updated.startedPrepAt = now;
+          }
+          updatedOrder = updated;
+          return updated;
+        }
+        return o;
+      })
+    );
+
+    // Send POST /v1/customer/user/update_order on order state change
+    if (updatedOrder) {
+      this.syncCustomerOrder(updatedOrder);
+    } else {
+      const fallbackOrder: Order = {
+        id: idStr,
+        orderNumber: `HF-${idStr.padStart(3, '0')}`,
+        dailySequence: numId || 0,
+        diningOption: 'dine_in',
+        items: [],
+        subtotal: 0,
+        takeawayFee: 0,
+        tax: 0,
+        discount: 0,
+        total: 0,
+        paymentMethod: 'paynow',
+        paymentStatus: 'paid',
+        status,
+        createdAt: now
+      };
+      this.syncCustomerOrder(fallbackOrder);
+    }
+  }
+
+  /**
+   * Sends POST /customer/v1/customer/user/update_order
+   * with the exact requested payload structure:
+   * {
+   *   "order_id": 0,
+   *   "cust_sub": "string",
+   *   "orders": [
+   *     {
+   *       "stall_id": 0,
+   *       "dishes": [
+   *         {
+   *           "dish_id": 0,
+   *           "quantity": 0,
+   *           "price": 0
+   *         }
+   *       ]
+   *     }
+   *   ],
+   *   "total_price": 0,
+   *   "status": "string"
+   * }
+   */
+  syncCustomerOrder(order: Order, stallId?: string | number): void {
+    const cust = this.currentCustomer();
+    if (!cust || cust.isGuest || cust.id?.startsWith('guest') || cust.cognitoSub === 'guest') {
+      return;
+    }
+    const custSub = cust.cognitoSub || cust.id;
+    if (!custSub || custSub === 'guest' || custSub.startsWith('guest')) {
+      return;
+    }
+    const numOrderId = Number(order.dailySequence ?? parseInt(String(order.id).replace(/\D/g, ''), 10) ?? 0) || 0;
+
+    const parsedStallId = Number(
+      order.numericStallId ??
+      (stallId !== undefined && stallId !== null ? parseInt(String(stallId).replace(/\D/g, ''), 10) : 1) ??
+      1
+    ) || 1;
+
+    let dishes: BackendDishOrder[] = [];
+    if (order.items && order.items.length > 0) {
+      dishes = order.items.map(item => ({
+        dish_id: Number(item.numericDishId ?? parseInt(String(item.menuItemId).replace(/\D/g, ''), 10) ?? 1) || 1,
+        dish_name: item.name,
+        quantity: Number(item.quantity) || 1,
+        price: Number(item.totalPrice ?? item.unitPriceWithModifiers ?? 0)
+      }));
+    } else {
+      dishes = [
+        {
+          dish_id: 1,
+          dish_name: '',
+          quantity: 1,
+          price: Number(order.total) || 0
+        }
+      ];
+    }
+
+    const payload: BackendUpdateCustomerOrderPayload = {
+      order_id: numOrderId,
+      cust_sub: custSub,
+      orders: [
+        {
+          stall_id: parsedStallId,
+          dishes
+        }
+      ],
+      total_price: Number(order.total) || 0,
+      status: order.status
+    };
+
+    this.hawkerApiService.updateCustomerOrder(payload).pipe(
+      catchError(() => of(null))
+    ).subscribe();
+  }
+
+  /**
+   * Refreshes customer profile details and past orders from backend
+   * GET /v1/customer/user/{cust_sub}
+   */
+  refreshCustomerDetails(): Observable<BackendCustomerDetailResponse | null> {
+    const cust = this.currentCustomer();
+    if (!cust || cust.isGuest || cust.id?.startsWith('guest') || cust.cognitoSub === 'guest') {
+      return of(null);
+    }
+    const custSub = cust.cognitoSub || cust.id;
+    if (!custSub || custSub.startsWith('guest')) return of(null);
+
+    return this.hawkerApiService.getCustomerDetails(custSub).pipe(
+      tap(detail => {
+        if (detail) {
+          let updated = false;
+          if ((detail.cust_id || detail.customer_id) && cust.id !== (detail.cust_id || detail.customer_id)) {
+            cust.id = detail.cust_id || detail.customer_id || cust.id;
+            updated = true;
+          }
+          if ((detail.cust_name || detail.customer_name) && cust.name !== (detail.cust_name || detail.customer_name)) {
+            cust.name = detail.cust_name || detail.customer_name || cust.name;
+            updated = true;
+          }
+          if (detail.last_login && cust.lastLogin !== detail.last_login) {
+            cust.lastLogin = detail.last_login;
+            updated = true;
+          }
+          if (detail.email && cust.email !== detail.email) {
+            cust.email = detail.email;
+            updated = true;
+          }
+          if (detail.phone_number && cust.phone !== detail.phone_number) {
+            cust.phone = detail.phone_number;
+            updated = true;
+          }
+          if (updated) {
+            this.currentCustomer.set({ ...cust });
+          }
+
+          if (detail.past_orders) {
+            const mappedOrders = this.mapPastOrders(detail.past_orders);
+            this.customerOrders.set(mappedOrders);
+          }
+        }
+      }),
+      catchError(() => of(null))
+    );
+  }
+
+  /**
+   * Groups dishes by order_id from backend past_orders response and maps them into Order objects
+   */
+  mapPastOrders(pastOrdersData: BackendPastOrdersWrapper | BackendPastOrderDish[] | any): Order[] {
+    if (!pastOrdersData) return [];
+
+    let rawDishes: BackendPastOrderDish[] = [];
+    if (Array.isArray(pastOrdersData)) {
+      rawDishes = pastOrdersData;
+    } else if (pastOrdersData && Array.isArray(pastOrdersData.orders)) {
+      rawDishes = pastOrdersData.orders;
+    } else {
+      return [];
+    }
+
+    if (rawDishes.length === 0) return [];
+
+    // Group dishes by order_id
+    const orderGroups = new Map<number, BackendPastOrderDish[]>();
+    for (const dish of rawDishes) {
+      const orderId = Number(dish.order_id) || 0;
+      if (!orderGroups.has(orderId)) {
+        orderGroups.set(orderId, []);
+      }
+      orderGroups.get(orderId)!.push(dish);
+    }
+
+    const mappedOrders: Order[] = [];
+
+    for (const [orderId, dishes] of orderGroups.entries()) {
+      const firstDish = dishes[0];
+      const totalPrice = dishes.reduce((sum, d) => sum + (Number(d.order_price) || 0), 0);
+      const status = this.normalizeOrderStatus(firstDish?.order_status);
+
+      const items: OrderItem[] = dishes.map((d, idx) => {
+        const dishId = d.dish_id;
+        const qty = Number(d.quantity) || 1;
+        const price = Number(d.order_price) || 0;
+        const unitPrice = qty > 0 ? Number((price / qty).toFixed(2)) : price;
+
+        return {
+          id: `item-${orderId}-${dishId}-${idx}`,
+          menuItemId: String(dishId),
+          numericDishId: Number(dishId),
+          name: d.dish_name || `Dish #${dishId}`,
+          basePrice: unitPrice,
+          quantity: qty,
+          selectedModifiers: [],
+          unitPriceWithModifiers: unitPrice,
+          totalPrice: price
+        };
+      });
+
+      const createdAt = firstDish.order_created_at || firstDish.created_at || new Date().toISOString();
+
+      const order: Order = {
+        id: String(orderId),
+        orderNumber: `HF-${String(orderId).padStart(3, '0')}`,
+        dailySequence: orderId,
+        diningOption: 'dine_in',
+        items,
+        subtotal: Number(totalPrice.toFixed(2)),
+        takeawayFee: 0,
+        tax: 0,
+        discount: 0,
+        total: Number(totalPrice.toFixed(2)),
+        paymentMethod: 'paynow',
+        paymentStatus: 'paid',
+        status,
+        createdAt,
+        ...(status === 'completed' ? { completedAt: createdAt } : {})
+      };
+
+      mappedOrders.push(order);
+    }
+
+    // Sort descending by order_id (latest order first)
+    return mappedOrders.sort((a, b) => b.dailySequence - a.dailySequence);
+  }
+
+  private normalizeOrderStatus(statusStr?: string): OrderStatus {
+    const s = (statusStr || '').toLowerCase().trim();
+    if (s === 'completed' || s === 'collected') return 'completed';
+    if (s === 'ready') return 'ready';
+    if (s === 'preparing' || s === 'accepted' || s === 'cooking') return 'preparing';
+    if (s === 'cancelled' || s === 'canceled') return 'cancelled';
+    return 'pending';
+  }
 }
+
