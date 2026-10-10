@@ -1,38 +1,26 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { IconComponent } from '../../shared/components/icon/icon.component';
 import { CustomerService } from '../../core/services/customer.service';
-import { ReceiptModalComponent } from '../../shared/components/receipt-modal/receipt-modal.component';
-import { Order } from '../../core/models/order.model';
 
 @Component({
   selector: 'app-customer-profile',
   standalone: true,
-  imports: [CommonModule, RouterLink, IconComponent, ReceiptModalComponent],
+  imports: [CommonModule, RouterLink, IconComponent],
   templateUrl: './customer-profile.component.html',
 })
-export class CustomerProfileComponent {
+export class CustomerProfileComponent implements OnInit {
   private customerService = inject(CustomerService);
   private router = inject(Router);
 
   currentCustomer = this.customerService.currentCustomer;
   isGuest = this.customerService.isGuest;
-  customerOrders = this.customerService.customerOrders;
+  isAuthenticated = this.customerService.isAuthenticated;
 
-  selectedOrderForReceipt = signal<Order | null>(null);
-
-  formatOrderDate(isoDate: string): string {
-    try {
-      const d = new Date(isoDate);
-      return d.toLocaleDateString('en-SG', {
-        day: 'numeric',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-    } catch {
-      return isoDate;
+  ngOnInit(): void {
+    if (!this.isGuest()) {
+      this.customerService.refreshCustomerDetails().subscribe();
     }
   }
 

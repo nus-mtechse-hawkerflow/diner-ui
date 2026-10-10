@@ -4,6 +4,8 @@ import { MenuItem } from '../models/menu.model';
 import { AudioService } from './audio.service';
 import { SettingsService } from './settings.service';
 import { AuthService } from './auth.service';
+import { HawkerApiService } from './hawker-api.service';
+import { BackendCreateOrderPayload, BackendDishOrder } from '../models/hawker-api.model';
 
 @Injectable({
   providedIn: 'root'
@@ -12,15 +14,15 @@ export class OrderService {
   private audioService = inject(AudioService);
   private settingsService = inject(SettingsService);
   private authService = inject(AuthService);
+  private hawkerApiService = inject(HawkerApiService);
 
   // Cart State
-  readonly cartItems = signal<OrderItem[]>(this.loadCart());
+  readonly cartItems = signal<OrderItem[]>([]);
   readonly diningOption = signal<DiningOption>('dine_in');
-  readonly tableOrBuzzerNumber = signal<string>('');
   readonly orderNotes = signal<string>('');
 
   // Orders State
-  readonly orders = signal<Order[]>(this.loadOrders());
+  readonly orders = signal<Order[]>([]);
   readonly lastBumpedOrder = signal<Order | null>(null);
 
   // Cart Computations
@@ -78,75 +80,15 @@ export class OrderService {
   });
 
   constructor() {
-    // When stall changes, reload that stall's orders and cart
+    // When stall changes, reset that stall's orders and cart
     effect(() => {
       const stall = this.authService.currentStall();
       if (stall) {
-        this.orders.set(this.loadOrders());
-        this.cartItems.set(this.loadCart());
+        this.orders.set([]);
+        this.cartItems.set([]);
         this.lastBumpedOrder.set(null);
       }
     });
-
-    effect(() => {
-      const stall = this.authService.currentStall();
-      if (!stall) return;
-
-      const ordersKey = `hawkerflow_orders_${stall.id}`;
-      try {
-        if (typeof window !== 'undefined' && window.localStorage) {
-          window.localStorage.setItem(ordersKey, JSON.stringify(this.orders()));
-        }
-      } catch (e) {
-        // fallback
-      }
-    });
-
-    effect(() => {
-      const stall = this.authService.currentStall();
-      if (!stall) return;
-
-      const cartKey = `hawkerflow_cart_${stall.id}`;
-      try {
-        if (typeof window !== 'undefined' && window.localStorage) {
-          window.localStorage.setItem(cartKey, JSON.stringify(this.cartItems()));
-        }
-      } catch (e) {
-        // fallback
-      }
-    });
-  }
-
-  private loadOrders(): Order[] {
-    const stall = this.authService.currentStall();
-    if (!stall) return [];
-
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const stored = window.localStorage.getItem(`hawkerflow_orders_${stall.id}`);
-        if (stored) return JSON.parse(stored);
-      }
-    } catch (e) {
-      // fallback
-    }
-
-    return stall.initialOrders || [];
-  }
-
-  private loadCart(): OrderItem[] {
-    const stall = this.authService.currentStall();
-    if (!stall) return [];
-
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const stored = window.localStorage.getItem(`hawkerflow_cart_${stall.id}`);
-        if (stored) return JSON.parse(stored);
-      }
-    } catch (e) {
-      // fallback
-    }
-
-    return [];
   }
 
   // Cart Operations
@@ -160,9 +102,11 @@ export class OrderService {
     const unitPrice = item.basePrice + modifierSum;
     const modifierKey = selectedModifiers.map(m => m.optionId).sort().join('_') + '_' + (specialNotes || '');
 
+    const numericDishId = item.numericDishId ?? (parseInt(item.id, 10) || undefined);
     const existingIndex = this.cartItems().findIndex(cartItem => {
+      const isDishMatch = cartItem.menuItemId === item.id || (numericDishId && cartItem.numericDishId === numericDishId);
       const cartModKey = cartItem.selectedModifiers.map(m => m.optionId).sort().join('_') + '_' + (cartItem.specialNotes || '');
-      return cartItem.menuItemId === item.id && cartModKey === modifierKey;
+      return isDishMatch && cartModKey === modifierKey;
     });
 
     if (existingIndex > -1) {
@@ -178,6 +122,7 @@ export class OrderService {
       const newItem: OrderItem = {
         id: 'cart-item-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
         menuItemId: item.id,
+        numericDishId,
         name: item.name,
         chineseName: item.chineseName,
         basePrice: item.basePrice,
@@ -218,16 +163,11 @@ export class OrderService {
 
   clearCart(): void {
     this.cartItems.set([]);
-    this.tableOrBuzzerNumber.set('');
     this.orderNotes.set('');
   }
 
   setDiningOption(option: DiningOption): void {
     this.diningOption.set(option);
-  }
-
-  setTableOrBuzzerNumber(value: string): void {
-    this.tableOrBuzzerNumber.set(value);
   }
 
   setOrderNotes(notes: string): void {
@@ -255,7 +195,6 @@ export class OrderService {
       orderNumber: orderNum,
       dailySequence: nextSeq,
       diningOption: this.diningOption(),
-      tableOrBuzzerNumber: this.tableOrBuzzerNumber() || (this.diningOption() === 'dine_in' ? 'Table Walk-in' : 'Takeaway Counter'),
       items: [...this.cartItems()],
       subtotal,
       takeawayFee,
@@ -282,6 +221,34 @@ export class OrderService {
     }, 500);
 
     return newOrder;
+  }
+
+  /**
+   * Submits current cart directly to backend order service:
+   * POST /order/v1/order/orders
+   */
+  submitOrderToBackend(paymentMethod: PaymentMethod, cashTendered?: number, paynowRef?: string) {
+    const stall = this.authService.currentStall();
+    const stallNumericId = stall?.numericId ?? (stall ? parseInt(stall.id, 10) || 1 : 1);
+    const dishes: BackendDishOrder[] = this.cartItems().map(item => ({
+      dish_id: item.numericDishId ?? (parseInt(item.menuItemId, 10) || 1),
+      dish_name: item.name,
+      quantity: item.quantity,
+      price: Number(item.unitPriceWithModifiers.toFixed(2))
+    }));
+
+    const total = this.cartTotal();
+    const payload: BackendCreateOrderPayload = {
+      orders: [
+        {
+          stall_id: stallNumericId,
+          dishes
+        }
+      ],
+      total_price: total
+    };
+
+    return this.hawkerApiService.createOrder(payload);
   }
 
   updateOrderStatus(orderId: string, newStatus: OrderStatus): void {

@@ -3,7 +3,8 @@ import { Category, MenuItem } from './menu.model';
 import { Order } from './order.model';
 
 export interface StallAccount {
-  id: string; // e.g. "stall-ah-huat", "stall-uncle-lim"
+  id: string; // e.g. "stall-ah-huat", "stall-uncle-lim" or "1"
+  numericId?: number; // Backend numeric stall ID (e.g. 1)
   stallName: string;
   hawkerCentreName: string;
   unitNumber: string;
