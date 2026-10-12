@@ -40,8 +40,8 @@ jobs:
 
       - name: Build Production UI
         env:
-          COGNITO_USER_POOL_ID: ${{ vars.COGNITO_USER_POOL_ID }}
-          COGNITO_USER_POOL_CLIENT_ID: ${{ vars.COGNITO_USER_POOL_CLIENT_ID }}
+          COGNITO_USER_POOL_ID: ${{ secrets.COGNITO_USER_POOL_ID }}
+          COGNITO_USER_POOL_CLIENT_ID: ${{ secrets.COGNITO_USER_POOL_CLIENT_ID }}
           COGNITO_ENDPOINT: ${{ vars.COGNITO_ENDPOINT }}
           AWS_REGION: ${{ vars.AWS_REGION }}
           HAWKER_STALLS_URL: ${{ vars.HAWKER_STALLS_URL }}
