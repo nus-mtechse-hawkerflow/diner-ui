@@ -1,49 +1,117 @@
-name: Build & Deploy UI to AWS S3 & CloudFront
+# HawkerFlow UI pipeline (drop-in for diner-ui and hawker-ui)
+#
+# What changed from the previous workflow:
+#   - PRs to main no longer deploy to S3/CloudFront. The old job had no condition,
+#     so every PR build was synced to the live bucket.
+#   - Build/test/audit runs on every PR and push; deploy only on push to `release`,
+#     and only after the checks pass.
+#   - npm audit gates on high/critical vulnerabilities in runtime dependencies.
+#   - diner-ui: set-env.js reads COGNITO_CLIENT_ID, but the old workflow only set
+#     COGNITO_USER_POOL_CLIENT_ID, so the deployed diner app's userPoolClientId was
+#     the literal string 'undefined'. Both names are set below; better still, fix
+#     set-env.js to fail on missing variables the way hawker-ui's does.
+
+name: CI/CD
 
 on:
-  push:
-    branches:
-      - release
-  
   pull_request:
-    branches:
-      - main
-  
-  workflow_dispatch: # Allows manual trigger from GitHub UI
+    branches: [main, release]
+  push:
+    branches: [main, release]
+  workflow_dispatch:
 
-# Permissions required for AWS OIDC authentication
 permissions:
-  id-token: write
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  build-and-deploy:
+  # ------------------------------------------------------------------
+  # 1. Audit, test and compile (no AWS access, no deploy)
+  # ------------------------------------------------------------------
+  build-test:
+    name: Audit, test & build
     runs-on: ubuntu-latest
-    environment: PROD
-
+    timeout-minutes: 20
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'npm'
+          cache: npm
 
-      - name: Install Dependencies
-        run: npm ci --legacy-peer-deps
+      - run: npm ci --legacy-peer-deps
 
-      # Optional: Run tests before deploying
-      - name: Run Unit Tests
+      - name: npm audit (runtime deps, high/critical)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Unit tests
         run: npm test -- --watch=false
 
-      - name: Build Production UI
+      # Placeholder values only prove the app compiles; the deploy job
+      # rebuilds with the real environment variables.
+      - name: Compile check
         env:
-          COGNITO_USER_POOL_ID: ${{ secrets.COGNITO_USER_POOL_ID }}
-          COGNITO_USER_POOL_CLIENT_ID: ${{ secrets.COGNITO_USER_POOL_CLIENT_ID }}
+          COGNITO_USER_POOL_ID: ap-southeast-1_placeholder
+          COGNITO_USER_POOL_CLIENT_ID: placeholder
+          COGNITO_CLIENT_ID: placeholder
+          COGNITO_ENDPOINT: https://example.invalid
+          AWS_REGION: ap-southeast-1
+          HAWKER_API_URL: https://example.invalid
+          ORDER_API_URL: https://example.invalid
+          ANALYTICS_API_URL: https://example.invalid
+          HAWKER_STALLS_URL: https://example.invalid
+          ORDER_SUBMIT_URL: https://example.invalid
+          ORDER_QUEUE_URL: https://example.invalid
+          CUSTOMER_REGISTER_URL: https://example.invalid
+          CUSTOMER_CHECK_ACCOUNT_URL: https://example.invalid
+          CUSTOMER_USER_BASE_URL: https://example.invalid
+          CUSTOMER_UPDATE_ORDER_URL: https://example.invalid
+          ORDER_STATUS_TOPIC_ARN: arn:aws:sns:ap-southeast-1:000000000000:placeholder
+        run: node set-env.js && npm run build
+
+  # ------------------------------------------------------------------
+  # 2. Deploy (release branch only)
+  # ------------------------------------------------------------------
+  deploy:
+    name: Deploy to S3 & CloudFront
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [build-test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/release'
+    environment: PROD
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: ui-deploy-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --legacy-peer-deps
+
+      - name: Build production UI
+        env:
+          # Cognito (hawker-ui keeps these in secrets, diner-ui in vars; either works)
+          COGNITO_USER_POOL_ID: ${{ secrets.COGNITO_USER_POOL_ID || vars.COGNITO_USER_POOL_ID }}
+          COGNITO_USER_POOL_CLIENT_ID: ${{ secrets.COGNITO_USER_POOL_CLIENT_ID || vars.COGNITO_USER_POOL_CLIENT_ID }}
+          COGNITO_CLIENT_ID: ${{ secrets.COGNITO_USER_POOL_CLIENT_ID || vars.COGNITO_USER_POOL_CLIENT_ID }}
           COGNITO_ENDPOINT: ${{ vars.COGNITO_ENDPOINT }}
           AWS_REGION: ${{ vars.AWS_REGION }}
+          # hawker-ui
+          HAWKER_API_URL: ${{ vars.HAWKER_API_URL }}
+          ORDER_API_URL: ${{ vars.ORDER_API_URL }}
+          ANALYTICS_API_URL: ${{ vars.ANALYTICS_API_URL }}
+          # diner-ui
           HAWKER_STALLS_URL: ${{ vars.HAWKER_STALLS_URL }}
           ORDER_SUBMIT_URL: ${{ vars.ORDER_SUBMIT_URL }}
           ORDER_QUEUE_URL: ${{ vars.ORDER_QUEUE_URL }}
@@ -54,35 +122,23 @@ jobs:
           ORDER_STATUS_TOPIC_ARN: ${{ vars.ORDER_STATUS_TOPIC_ARN }}
         run: node set-env.js && npm run build
 
-      # Authenticate using AWS OIDC (Recommended)
-      - name: Configure AWS Credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      # -----------------------------------------------------------------
-      # S3 Deployment with Optimal SPA Cache Headers
-      # -----------------------------------------------------------------
-      # 1. Upload hashed assets (JS, CSS, images) with long-lived immutable cache
-      - name: "Sync Static Assets to S3 (Cache: 1 Year)"
+      - name: "Sync hashed assets (cache: 1 year)"
         run: |
-          aws s3 sync ${{ vars.BUILD_OUTPUT_DIR }} s3://${{ secrets.AWS_S3_BUCKET }} \
-            --delete \
-            --exclude "index.html" \
+          aws s3 sync "${{ vars.BUILD_OUTPUT_DIR }}" "s3://${{ secrets.AWS_S3_BUCKET }}" \
+            --delete --exclude "index.html" \
             --cache-control "public, max-age=31536000, immutable"
 
-      # 2. Upload index.html with NO-CACHE so users always fetch the latest chunk references
-      - name: Sync index.html to S3 (No Cache)
+      - name: Upload index.html (no cache)
         run: |
-          aws s3 cp ${{ vars.BUILD_OUTPUT_DIR }}/index.html s3://${{ secrets.AWS_S3_BUCKET }}/index.html \
+          aws s3 cp "${{ vars.BUILD_OUTPUT_DIR }}/index.html" "s3://${{ secrets.AWS_S3_BUCKET }}/index.html" \
             --cache-control "no-cache, no-store, must-revalidate"
 
-      # -----------------------------------------------------------------
-      # CloudFront Cache Invalidation
-      # -----------------------------------------------------------------
-      - name: Invalidate CloudFront Cache
+      - name: Invalidate CloudFront
         run: |
           aws cloudfront create-invalidation \
-            --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
-            --paths "/*"
+            --distribution-id "${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}" --paths "/*"
