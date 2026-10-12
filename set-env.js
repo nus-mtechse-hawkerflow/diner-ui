@@ -3,7 +3,7 @@ const fs = require('fs');
 const envConfigFile = `export const environment = {
   cognito: {
     userPoolId: '${process.env.COGNITO_USER_POOL_ID}',
-    userPoolClientId: '${process.env.COGNITO_CLIENT_ID}',
+    userPoolClientId: '${process.env.COGNITO_USER_POOL_CLIENT_ID}',
     region: '${process.env.AWS_REGION}',
     endpoint: '${process.env.COGNITO_ENDPOINT}'
   },
