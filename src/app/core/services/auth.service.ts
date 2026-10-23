@@ -155,20 +155,19 @@ export class AuthService {
       },
       initialCategories: [
         { id: 'all', name: 'All Items', chineseName: '全部', icon: 'utensils', displayOrder: 0 },
-        { id: 'mains', name: 'Signatures', chineseName: '招牌', icon: 'flame', displayOrder: 1 },
+        { id: 'mains', name: 'Main', chineseName: '主菜', icon: 'flame', displayOrder: 1 },
         { id: 'drinks', name: 'Beverages', chineseName: '饮料', icon: 'coffee', displayOrder: 2 }
       ],
       initialMenuItems: [
         {
           id: 'dish-sample-1',
-          name: newStall.stallName + ' Signature Special',
-          chineseName: '招牌推荐',
+          name: newStall.stallName + ' Special',
+          chineseName: '推荐',
           description: 'Chef recommendation fresh specialty.',
           categoryId: 'mains',
           basePrice: 6.00,
           emoji: newStall.emoji || '🍲',
           isAvailable: true,
-          popularBadge: 'Signature',
           preparationTimeMins: 4
         }
       ],
