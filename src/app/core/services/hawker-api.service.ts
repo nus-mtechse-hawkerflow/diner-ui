@@ -172,7 +172,7 @@ export class HawkerApiService {
 
     const initialCategories: Category[] = [
       { id: 'all', name: 'All Items', chineseName: '全部', icon: 'utensils', displayOrder: 0 },
-      { id: 'mains', name: 'Signatures', chineseName: '招牌', icon: 'flame', displayOrder: 1 }
+      { id: 'mains', name: 'Main', chineseName: '主菜', icon: 'flame', displayOrder: 1 }
     ];
 
     const initialMenuItems: MenuItem[] = (stall.stall_menu || []).map(dish => ({
